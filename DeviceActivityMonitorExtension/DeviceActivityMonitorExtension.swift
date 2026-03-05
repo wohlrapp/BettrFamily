@@ -4,9 +4,20 @@ import Foundation
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
+    /// Social media bundle IDs to detect
+    private let socialMediaBundleIDs: Set<String> = [
+        "com.burbn.instagram",
+        "com.zhiliaoapp.musically", // TikTok
+        "com.toyopagroup.picaboo", // Snapchat
+        "com.google.ios.youtube",
+        "com.facebook.Facebook",
+        "com.atebits.Tweetie2", // X/Twitter
+        "com.reddit.Reddit"
+    ]
+
     private var modelContainer: ModelContainer? {
         try? ModelContainer(
-            for: UsageRecord.self, ComplianceEvent.self,
+            for: UsageRecord.self, ComplianceEvent.self, ActivityRecord.self,
             configurations: ModelConfiguration(
                 groupContainer: .identifier(AppConstants.appGroupID)
             )
@@ -14,12 +25,10 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     override func intervalDidStart(for activity: DeviceActivityName) {
-        // Called when a new monitoring interval begins (daily reset)
         print("DeviceActivity interval started: \(activity.rawValue)")
     }
 
     override func intervalDidEnd(for activity: DeviceActivityName) {
-        // Called when a monitoring interval ends
         print("DeviceActivity interval ended: \(activity.rawValue)")
     }
 
@@ -27,21 +36,43 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         _ event: DeviceActivityEvent.Name,
         activity: DeviceActivityName
     ) {
-        // Called when a monitored app reaches usage threshold
         guard let container = modelContainer else { return }
         let context = ModelContext(container)
 
         let memberID = UserDefaults.shared.string(forKey: AppConstants.UserDefaultsKeys.memberID) ?? "unknown"
         let memberName = UserDefaults.shared.string(forKey: AppConstants.UserDefaultsKeys.memberName) ?? "Unknown"
 
+        let eventName = event.rawValue
+
+        // Check if this is a social media app
+        let isSocialMedia = socialMediaBundleIDs.contains(eventName) ||
+            eventName.localizedCaseInsensitiveContains("instagram") ||
+            eventName.localizedCaseInsensitiveContains("tiktok") ||
+            eventName.localizedCaseInsensitiveContains("snapchat") ||
+            eventName.localizedCaseInsensitiveContains("youtube") ||
+            eventName.localizedCaseInsensitiveContains("facebook") ||
+            eventName.localizedCaseInsensitiveContains("twitter")
+
+        if isSocialMedia {
+            // Create social media compliance event → triggers notification to all family members
+            let complianceEvent = ComplianceEvent(
+                memberID: memberID,
+                memberName: memberName,
+                eventType: .socialMediaUsed,
+                details: "Social Media genutzt: \(eventName)"
+            )
+            context.insert(complianceEvent)
+        }
+
+        // Always create the general monitored app compliance event
         let complianceEvent = ComplianceEvent(
             memberID: memberID,
             memberName: memberName,
             eventType: .monitoredAppUsed,
-            details: "Ueberwachte App-Nutzungsschwelle erreicht: \(event.rawValue)"
+            details: "Ueberwachte App-Nutzungsschwelle erreicht: \(eventName)"
         )
-
         context.insert(complianceEvent)
+
         try? context.save()
     }
 
