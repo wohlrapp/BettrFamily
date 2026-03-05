@@ -74,7 +74,7 @@ struct ScoreTabView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: "star.circle.fill")
-                                    Text("RAVE")
+                                    Text("RAVE / RANT")
                                 }
                                 .frame(maxWidth: .infinity)
                             }
@@ -483,7 +483,7 @@ struct ScoreTabView: View {
 
     private var recentRavesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("RAVEs (letzte 7 Tage)")
+            Text("RAVEs & RANTs (letzte 7 Tage)")
                 .font(.headline)
                 .padding(.horizontal)
 
@@ -502,9 +502,9 @@ struct ScoreTabView: View {
                         .foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text("+\(Int(rave.points))")
+                    Text(rave.points >= 0 ? "+\(Int(rave.points))" : "\(Int(rave.points))")
                         .font(.subheadline.bold())
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(rave.points >= 0 ? .orange : .red)
                 }
                 .padding(.horizontal)
             }

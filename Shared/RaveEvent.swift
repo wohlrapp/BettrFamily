@@ -54,6 +54,10 @@ final class RaveEvent {
         ]
     }
 
+    var isRant: Bool {
+        points < 0
+    }
+
     /// Predefined RAVE reasons with suggested emoji
     static let presetReasons: [(reason: String, emoji: String)] = [
         ("Abendessen gekocht", "🍳"),
@@ -70,5 +74,19 @@ final class RaveEvent {
         ("Test gut bestanden", "📝"),
         ("Zeugnis-Verbesserung", "🏅"),
         ("Besorgungen erledigt", "✅"),
+    ]
+
+    /// Predefined RANT reasons (negative points)
+    static let presetRantReasons: [(reason: String, emoji: String)] = [
+        ("Zimmer nicht aufgeraeumt", "🗑️"),
+        ("Unhoeflich gewesen", "😤"),
+        ("Aufgaben nicht erledigt", "❌"),
+        ("Zu viel gemeckert", "😡"),
+        ("Geschwister geaergert", "👊"),
+        ("Nicht mitgeholfen", "🚫"),
+        ("Versprechen nicht gehalten", "💔"),
+        ("Zu spaet nach Hause", "🕐"),
+        ("Schlechte Laune verbreitet", "😒"),
+        ("Regeln nicht eingehalten", "⚠️"),
     ]
 }

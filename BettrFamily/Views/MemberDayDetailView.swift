@@ -107,7 +107,7 @@ struct MemberDayDetailView: View {
                 }
 
                 if !dayRaves.isEmpty {
-                    Section("RAVEs erhalten") {
+                    Section("RAVEs & RANTs erhalten") {
                         ForEach(dayRaves, id: \.id) { rave in
                             HStack {
                                 Text(rave.emoji)
@@ -120,9 +120,9 @@ struct MemberDayDetailView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text("+\(Int(rave.points))")
+                                Text(rave.points >= 0 ? "+\(Int(rave.points))" : "\(Int(rave.points))")
                                     .font(.subheadline.bold())
-                                    .foregroundStyle(.orange)
+                                    .foregroundStyle(rave.points >= 0 ? .orange : .red)
                             }
                         }
                     }

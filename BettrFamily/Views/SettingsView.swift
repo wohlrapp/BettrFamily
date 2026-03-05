@@ -306,6 +306,24 @@ struct SettingsView: View {
                 rave.date = startOfDay
                 modelContext.insert(rave)
             }
+
+            // RANT (some days)
+            if dayOffset == 2 || dayOffset == 4 {
+                let rantReasons = RaveEvent.presetRantReasons
+                let rantPreset = rantReasons.randomElement()!
+                let rant = RaveEvent(
+                    fromMemberID: "mock_partner",
+                    fromMemberName: "Lotte",
+                    toMemberID: memberID,
+                    toMemberName: memberName,
+                    reason: rantPreset.reason,
+                    points: -Double(Int.random(in: 2...5)),
+                    emoji: rantPreset.emoji
+                )
+                rant.timestamp = startOfDay.addingTimeInterval(Double.random(in: 36000...72000))
+                rant.date = startOfDay
+                modelContext.insert(rant)
+            }
         }
 
         // -- Streak Record --

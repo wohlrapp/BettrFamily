@@ -9,6 +9,7 @@ struct RaveView: View {
 
     @Query private var familyMembers: [FamilyMember]
 
+    @State private var isRant = false
     @State private var selectedMember: FamilyMember?
     @State private var selectedPreset: (reason: String, emoji: String)?
     @State private var customReason = ""
@@ -17,9 +18,7 @@ struct RaveView: View {
     @State private var showCustom = false
     @State private var sent = false
 
-    private var eligibleMembers: [FamilyMember] {
-        familyMembers
-    }
+    private var accentColor: Color { isRant ? .red : .orange }
 
     var body: some View {
         NavigationStack {
@@ -30,7 +29,7 @@ struct RaveView: View {
                     raveForm
                 }
             }
-            .navigationTitle("RAVE senden")
+            .navigationTitle(isRant ? "RANT senden" : "RAVE senden")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Schliessen") { dismiss() }
@@ -44,17 +43,32 @@ struct RaveView: View {
     private var raveForm: some View {
         ScrollView {
             VStack(spacing: 20) {
+                // RAVE / RANT toggle
+                Picker("Typ", selection: $isRant) {
+                    Text("RAVE").tag(false)
+                    Text("RANT").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .onChange(of: isRant) { _, _ in
+                    selectedPreset = nil
+                    showCustom = false
+                    customReason = ""
+                    points = 5
+                }
+
                 // Select recipient
                 VStack(alignment: .leading, spacing: 8) {
                     Text("An wen?")
                         .font(.headline)
 
-                    ForEach(eligibleMembers, id: \.id) { member in
+                    ForEach(familyMembers, id: \.id) { member in
                         Button {
                             selectedMember = member
                         } label: {
                             HStack {
                                 Image(systemName: selectedMember?.id == member.id ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selectedMember?.id == member.id ? accentColor : .secondary)
                                 Text(member.name)
                                 Spacer()
                             }
@@ -63,8 +77,8 @@ struct RaveView: View {
                         .tint(.primary)
                     }
 
-                    if eligibleMembers.isEmpty {
-                        Text("Keine anderen Familienmitglieder gefunden.")
+                    if familyMembers.isEmpty {
+                        Text("Keine Familienmitglieder gefunden.")
                             .foregroundStyle(.secondary)
                             .font(.caption)
                     }
@@ -73,11 +87,11 @@ struct RaveView: View {
 
                 // Select reason
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Wofuer?")
+                    Text(isRant ? "Was war los?" : "Wofuer?")
                         .font(.headline)
                         .padding(.horizontal)
 
-                    let presets = RaveEvent.presetReasons
+                    let presets = isRant ? RaveEvent.presetRantReasons : RaveEvent.presetReasons
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 8) {
                         ForEach(presets, id: \.reason) { preset in
                             Button {
@@ -91,7 +105,7 @@ struct RaveView: View {
                                     Spacer()
                                 }
                                 .padding(8)
-                                .background(selectedPreset?.reason == preset.reason ? Color.orange.opacity(0.2) : Color(.systemGray6))
+                                .background(selectedPreset?.reason == preset.reason ? accentColor.opacity(0.2) : Color(.systemGray6))
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
                             }
                             .tint(.primary)
@@ -108,7 +122,7 @@ struct RaveView: View {
                                 Spacer()
                             }
                             .padding(8)
-                            .background(showCustom ? Color.orange.opacity(0.2) : Color(.systemGray6))
+                            .background(showCustom ? accentColor.opacity(0.2) : Color(.systemGray6))
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                         }
                         .tint(.primary)
@@ -124,24 +138,25 @@ struct RaveView: View {
 
                 // Points
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Punkte: \(Int(points))")
+                    Text(isRant ? "Abzug: -\(Int(points))" : "Punkte: +\(Int(points))")
                         .font(.headline)
                     Slider(value: $points, in: 1...10, step: 1)
+                        .tint(accentColor)
                 }
                 .padding(.horizontal)
 
                 // Send button
                 Button {
-                    sendRave()
+                    sendRaveOrRant()
                 } label: {
                     HStack {
-                        Image(systemName: "star.circle.fill")
-                        Text("RAVE senden")
+                        Image(systemName: isRant ? "exclamationmark.triangle.fill" : "star.circle.fill")
+                        Text(isRant ? "RANT senden" : "RAVE senden")
                     }
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.orange)
+                .tint(accentColor)
                 .disabled(selectedMember == nil || (selectedPreset == nil && customReason.isEmpty))
                 .padding(.horizontal)
             }
@@ -154,29 +169,35 @@ struct RaveView: View {
     private var sentConfirmation: some View {
         VStack(spacing: 16) {
             Spacer()
-            Text(selectedPreset?.emoji ?? customEmoji)
+            Text(selectedPreset?.emoji ?? (isRant ? "😤" : customEmoji))
                 .font(.system(size: 64))
-            Text("RAVE gesendet!")
+            Text(isRant ? "RANT gesendet!" : "RAVE gesendet!")
                 .font(.title2.bold())
-            Text("\(selectedMember?.name ?? "") hat +\(Int(points)) Punkte erhalten")
-                .foregroundStyle(.secondary)
+            if isRant {
+                Text("\(selectedMember?.name ?? "") hat -\(Int(points)) Punkte erhalten")
+                    .foregroundStyle(.red)
+            } else {
+                Text("\(selectedMember?.name ?? "") hat +\(Int(points)) Punkte erhalten")
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Button("Fertig") { dismiss() }
                 .buttonStyle(.borderedProminent)
-                .tint(.orange)
+                .tint(accentColor)
             Spacer()
         }
     }
 
     // MARK: - Send
 
-    private func sendRave() {
+    private func sendRaveOrRant() {
         guard let member = selectedMember,
               let fromID = authService.memberID,
               let fromName = authService.memberName else { return }
 
         let reason = selectedPreset?.reason ?? customReason
-        let emoji = selectedPreset?.emoji ?? customEmoji
+        let emoji = selectedPreset?.emoji ?? (isRant ? "😤" : customEmoji)
+        let actualPoints = isRant ? -points : points
 
         let rave = RaveEvent(
             fromMemberID: fromID,
@@ -184,14 +205,13 @@ struct RaveView: View {
             toMemberID: member.id,
             toMemberName: member.name,
             reason: reason,
-            points: points,
+            points: actualPoints,
             emoji: emoji
         )
 
         modelContext.insert(rave)
         try? modelContext.save()
 
-        // Sync to Firebase
         if let familyGroupID = authService.familyGroupID {
             Task {
                 await syncService.syncRaveEvents(from: modelContext, familyGroupID: familyGroupID)
