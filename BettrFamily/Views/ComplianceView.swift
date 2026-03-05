@@ -6,23 +6,37 @@ struct ComplianceView: View {
     @EnvironmentObject var syncService: FirebaseSyncService
     @Environment(\.modelContext) private var modelContext
 
+    @Query private var familyMembers: [FamilyMember]
+
     @State private var events: [[String: Any]] = []
     @State private var isLoading = false
+    @State private var selectedMemberID: String? = nil
 
     var body: some View {
         NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView()
-                } else if events.isEmpty {
-                    ContentUnavailableView(
-                        "Keine Ereignisse",
-                        systemImage: "shield.checkered",
-                        description: Text("Keine Compliance-Verstoesse erfasst.")
-                    )
-                } else {
-                    List(Array(events.enumerated()), id: \.offset) { _, event in
-                        ComplianceEventRow(event: event)
+            VStack(spacing: 0) {
+                memberFilter
+
+                Group {
+                    if isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if filteredEvents.isEmpty {
+                        ContentUnavailableView(
+                            "Keine Ereignisse",
+                            systemImage: "shield.checkered",
+                            description: Text("Keine Compliance-Verstoesse erfasst.")
+                        )
+                    } else {
+                        List {
+                            ForEach(groupedByDate, id: \.date) { group in
+                                Section(group.dateString) {
+                                    ForEach(Array(group.events.enumerated()), id: \.offset) { _, event in
+                                        ComplianceEventRow(event: event)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -32,14 +46,47 @@ struct ComplianceView: View {
         }
     }
 
+    private var memberFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterChip(title: "Alle", isSelected: selectedMemberID == nil) {
+                    selectedMemberID = nil
+                }
+                ForEach(familyMembers, id: \.id) { member in
+                    FilterChip(title: member.name, isSelected: selectedMemberID == member.id) {
+                        selectedMemberID = member.id
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private var filteredEvents: [[String: Any]] {
+        guard let memberID = selectedMemberID else { return events }
+        return events.filter { ($0["memberID"] as? String) == memberID }
+    }
+
+    private var groupedByDate: [(date: Date, dateString: String, events: [[String: Any]])] {
+        let grouped = Dictionary(grouping: filteredEvents) { event -> Date in
+            if let ts = event["timestamp"] as? Double {
+                return Calendar.current.startOfDay(for: Date(timeIntervalSince1970: ts))
+            }
+            return Calendar.current.startOfDay(for: Date())
+        }
+        return grouped.map { date, events in
+            (date: date, dateString: date.formatted(date: .abbreviated, time: .omitted), events: events)
+        }
+        .sorted { $0.date > $1.date }
+    }
+
     private func loadEvents() async {
         guard let familyGroupID = authService.familyGroupID else { return }
         isLoading = true
 
-        // Sync local events first
         await syncService.syncComplianceEvents(from: modelContext, familyGroupID: familyGroupID)
-
-        // Fetch all family events
         events = await syncService.fetchFamilyComplianceEvents(familyGroupID: familyGroupID)
         isLoading = false
     }
@@ -63,7 +110,7 @@ struct ComplianceEventRow: View {
                     .foregroundStyle(.secondary)
 
                 if let timestamp = event["timestamp"] as? Double {
-                    Text(Date(timeIntervalSince1970: timestamp).formatted())
+                    Text(Date(timeIntervalSince1970: timestamp).formatted(date: .omitted, time: .shortened))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
