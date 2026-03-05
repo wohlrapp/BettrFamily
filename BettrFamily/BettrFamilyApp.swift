@@ -50,6 +50,7 @@ struct BettrFamilyApp: App {
 
 struct RootView: View {
     @EnvironmentObject var authService: AuthService
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showSplash = true
 
     var body: some View {
@@ -77,6 +78,15 @@ struct RootView: View {
         .task {
             try? await Task.sleep(for: .seconds(1.5))
             showSplash = false
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active && !showSplash {
+                showSplash = true
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    showSplash = false
+                }
+            }
         }
     }
 }
