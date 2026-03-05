@@ -29,6 +29,7 @@ struct ActivityPointConfig: Codable, Identifiable {
         // Bad
         ActivityPointConfig(activityType: "excessiveScreenTime", displayName: "Ueberm. Bildschirmzeit (>2h)", category: "bad", pointsPerUnit: -1, unitThreshold: 30, unit: "minutes", isEnabled: true),
         ActivityPointConfig(activityType: "socialMedia", displayName: "Social Media", category: "bad", pointsPerUnit: -2, unitThreshold: 30, unit: "minutes", isEnabled: true),
+        ActivityPointConfig(activityType: "streaming", displayName: "Streaming (Netflix etc.)", category: "bad", pointsPerUnit: -1, unitThreshold: 30, unit: "minutes", isEnabled: true),
         ActivityPointConfig(activityType: "gaming", displayName: "Gaming Apps", category: "bad", pointsPerUnit: -1, unitThreshold: 30, unit: "minutes", isEnabled: true),
         ActivityPointConfig(activityType: "lateNightScreen", displayName: "Spaete Bildschirmzeit (>22h)", category: "bad", pointsPerUnit: -3, unitThreshold: 1, unit: "count", isEnabled: true),
         ActivityPointConfig(activityType: "shortSleep", displayName: "Wenig Schlaf (<6h)", category: "bad", pointsPerUnit: -5, unitThreshold: 1, unit: "flat", isEnabled: true),

@@ -198,8 +198,33 @@ final class PointsEngine: ObservableObject {
             )
         }
 
-        // Gaming apps (rough detection by category — any app not in social media and with "game" in name)
-        // This is a simplified heuristic; real implementation would use app category from Screen Time API
+        // Streaming apps
+        let streamingBundleIDs = [
+            "com.netflix.Netflix",
+            "com.amazon.aiv.AIVApp", // Prime Video
+            "com.disney.disneyplus",
+            "com.hbo.hbonow" // Max/HBO
+        ]
+        let streamingMinutes = Double(usageRecords
+            .filter { streamingBundleIDs.contains($0.appBundleID) }
+            .reduce(0) { $0 + $1.durationSeconds }) / 60.0
+
+        if streamingMinutes > 0,
+           let cfg = config.activities.first(where: { $0.activityType == "streaming" && $0.isEnabled }) {
+            let units = floor(streamingMinutes / cfg.unitThreshold)
+            let points = units * cfg.pointsPerUnit
+            if abs(points) > 0 {
+                insertOrUpdateRecord(
+                    memberID: memberID, date: startOfDay,
+                    activityType: "streaming", category: .bad,
+                    rawValue: streamingMinutes, unit: "minutes",
+                    points: points, source: "screentime",
+                    modelContext: modelContext
+                )
+            }
+        }
+
+        // Gaming apps
         let gamingBundleIDs = [
             "com.supercell.laser", "com.king.candycrush", "com.mojang.minecraftpe",
             "com.innersloth.amongus", "com.epicgames.fortnite"

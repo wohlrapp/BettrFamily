@@ -17,8 +17,8 @@ struct RaveView: View {
     @State private var showCustom = false
     @State private var sent = false
 
-    private var otherMembers: [FamilyMember] {
-        familyMembers.filter { $0.id != authService.memberID }
+    private var eligibleMembers: [FamilyMember] {
+        familyMembers
     }
 
     var body: some View {
@@ -49,7 +49,7 @@ struct RaveView: View {
                     Text("An wen?")
                         .font(.headline)
 
-                    ForEach(otherMembers, id: \.id) { member in
+                    ForEach(eligibleMembers, id: \.id) { member in
                         Button {
                             selectedMember = member
                         } label: {
@@ -63,7 +63,7 @@ struct RaveView: View {
                         .tint(.primary)
                     }
 
-                    if otherMembers.isEmpty {
+                    if eligibleMembers.isEmpty {
                         Text("Keine anderen Familienmitglieder gefunden.")
                             .foregroundStyle(.secondary)
                             .font(.caption)

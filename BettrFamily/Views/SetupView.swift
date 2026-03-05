@@ -263,6 +263,11 @@ struct SetupView: View {
             Spacer()
         }
         .padding()
+        .onChange(of: locationService.isLocationAuthorized) { _, authorized in
+            if authorized {
+                finishSetup()
+            }
+        }
     }
 
     private func finishSetup() {

@@ -113,3 +113,15 @@ targets:
         INFOPLIST_FILE: PacketTunnelExtension/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.bettrfamily.app.PacketTunnel
         TARGETED_DEVICE_FAMILY: "1"
+
+schemes:
+  BettrFamily:
+    build:
+      targets:
+        BettrFamily: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug

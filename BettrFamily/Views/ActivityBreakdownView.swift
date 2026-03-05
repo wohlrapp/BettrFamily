@@ -7,6 +7,7 @@ struct ActivityBreakdownView: View {
     @Environment(\.dismiss) private var dismiss
 
     @Query(sort: \ActivityRecord.points, order: .reverse) private var allRecords: [ActivityRecord]
+    @State private var showManualActivity = false
 
     private var todayRecords: [ActivityRecord] {
         guard let memberID = authService.memberID else { return [] }
@@ -63,9 +64,19 @@ struct ActivityBreakdownView: View {
             }
             .navigationTitle("Aktivitaeten")
             .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showManualActivity = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Fertig") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showManualActivity) {
+                ManualActivityView()
             }
         }
     }
@@ -124,12 +135,18 @@ struct ActivityBreakdownView: View {
         case "proximity": return "person.2"
         case "coLocation": return "location"
         case "sharedWorkout": return "figure.2.and.child.holdinghands"
+        case "streaming": return "play.tv"
         case "rave": return "star.fill"
-        default: return "circle"
+        default:
+            if type.hasPrefix("manual_") { return "hand.thumbsup.fill" }
+            return "circle"
         }
     }
 
     private func displayName(for type: String) -> String {
+        if type.hasPrefix("manual_") {
+            return String(type.dropFirst("manual_".count))
+        }
         let configs = ActivityPointConfig.defaults
         return configs.first { $0.activityType == type }?.displayName ?? type
     }

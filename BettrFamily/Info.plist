@@ -44,6 +44,8 @@
 	<string>BettrFamily nutzt deinen Standort, um Bonus-Punkte zu vergeben, wenn Familienmitglieder Zeit zusammen verbringen.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>BettrFamily nutzt Bluetooth, um zu erkennen, wenn Familienmitglieder in der Naehe sind.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>BettrFamily zeigt anstehende Termine aus dem Familienkalender an.</string>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.bettrfamily.heartbeat</string>

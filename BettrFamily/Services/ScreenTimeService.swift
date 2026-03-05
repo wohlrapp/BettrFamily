@@ -13,6 +13,11 @@ final class ScreenTimeService: ObservableObject {
     private let center = AuthorizationCenter.shared
     private let deviceActivityCenter = DeviceActivityCenter()
 
+    init() {
+        authorizationStatus = center.authorizationStatus
+        isAuthorized = authorizationStatus == .approved
+    }
+
     func requestAuthorization() async {
         do {
             try await center.requestAuthorization(for: .individual)

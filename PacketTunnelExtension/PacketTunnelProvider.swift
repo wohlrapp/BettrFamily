@@ -16,6 +16,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private let dnsServerAddress = "1.1.1.1" // Cloudflare DNS as upstream
     private var pendingDomains: Set<String> = []
     private let domainQueue = DispatchQueue(label: "com.bettrfamily.domainlog")
+    private var udpSession: NWUDPSession?
 
     // MARK: - Tunnel Lifecycle
 
@@ -27,12 +28,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler(error)
                 return
             }
+            // Create UDP session to real DNS server for forwarding queries
+            self?.udpSession = self?.createUDPSession(to: NWHostEndpoint(hostname: "1.1.1.1", port: "53"), from: nil)
             self?.startReadingPackets()
             completionHandler(nil)
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        udpSession?.cancel()
+        udpSession = nil
         completionHandler()
     }
 
@@ -68,13 +73,105 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         for (index, packet) in packets.enumerated() {
             if let domain = extractDNSQuery(from: packet) {
                 logDomain(domain, queryType: "DNS")
-            } else if let domain = extractSNI(from: packet) {
-                logDomain(domain, queryType: "SNI")
+                // Forward DNS query to real DNS server and relay response
+                forwardDNSQuery(originalPacket: packet, protocol: protocols[index])
+            } else {
+                if let domain = extractSNI(from: packet) {
+                    logDomain(domain, queryType: "SNI")
+                }
+                // Non-DNS packets: write back so the system handles them normally
+                packetFlow.writePackets([packet], withProtocols: [protocols[index]])
             }
-
-            // Forward packet
-            packetFlow.writePackets([packet], withProtocols: [protocols[index]])
         }
+    }
+
+    // MARK: - DNS Forwarding
+
+    private func forwardDNSQuery(originalPacket: Data, protocol proto: NSNumber) {
+        guard let udpSession else {
+            // No session — pass packet through as-is
+            packetFlow.writePackets([originalPacket], withProtocols: [proto])
+            return
+        }
+
+        let ipHeaderLength = Int(originalPacket[0] & 0x0F) * 4
+        let udpStart = ipHeaderLength
+        let dnsPayload = originalPacket.subdata(in: (udpStart + 8)..<originalPacket.count)
+
+        udpSession.writeDatagram(dnsPayload) { error in
+            if let error {
+                NSLog("BettrFamily DNS forward error: \(error)")
+                return
+            }
+        }
+
+        udpSession.setReadHandler({ [weak self] datagrams, error in
+            guard let self, let datagrams, let responseDNS = datagrams.first else { return }
+
+            // Build a UDP/IP response packet from the DNS response
+            if let responsePacket = self.buildDNSResponsePacket(
+                originalPacket: originalPacket,
+                dnsResponse: responseDNS
+            ) {
+                self.packetFlow.writePackets([responsePacket], withProtocols: [proto])
+            }
+        }, maxDatagrams: 1)
+    }
+
+    private func buildDNSResponsePacket(originalPacket: Data, dnsResponse: Data) -> Data? {
+        let ipHeaderLength = Int(originalPacket[0] & 0x0F) * 4
+
+        // Extract original IP src/dst and UDP src port to build the reply
+        let origSrcIP = originalPacket.subdata(in: 12..<16)
+        let origDstIP = originalPacket.subdata(in: 16..<20)
+        let udpStart = ipHeaderLength
+        let origSrcPort = originalPacket.subdata(in: udpStart..<(udpStart + 2))
+        let origDstPort = originalPacket.subdata(in: (udpStart + 2)..<(udpStart + 4))
+
+        let udpLength = UInt16(8 + dnsResponse.count)
+        let totalLength = UInt16(ipHeaderLength + Int(udpLength))
+
+        // Build IP header (copy original, swap src/dst, update length)
+        var ipHeader = Data(originalPacket.prefix(ipHeaderLength))
+        ipHeader[2] = UInt8(totalLength >> 8)
+        ipHeader[3] = UInt8(totalLength & 0xFF)
+        // Swap src and dst IP
+        ipHeader.replaceSubrange(12..<16, with: origDstIP)
+        ipHeader.replaceSubrange(16..<20, with: origSrcIP)
+        // Zero out checksum, then recalculate
+        ipHeader[10] = 0
+        ipHeader[11] = 0
+        let checksum = ipChecksum(ipHeader)
+        ipHeader[10] = UInt8(checksum >> 8)
+        ipHeader[11] = UInt8(checksum & 0xFF)
+
+        // Build UDP header (swap ports, set length, zero checksum)
+        var udpHeader = Data(count: 8)
+        udpHeader.replaceSubrange(0..<2, with: origDstPort) // src port = original dst
+        udpHeader.replaceSubrange(2..<4, with: origSrcPort) // dst port = original src
+        udpHeader[4] = UInt8(udpLength >> 8)
+        udpHeader[5] = UInt8(udpLength & 0xFF)
+        udpHeader[6] = 0 // checksum (optional for IPv4 UDP)
+        udpHeader[7] = 0
+
+        return ipHeader + udpHeader + dnsResponse
+    }
+
+    private func ipChecksum(_ header: Data) -> UInt16 {
+        var sum: UInt32 = 0
+        let count = header.count
+        var i = 0
+        while i < count - 1 {
+            sum += UInt32(header[i]) << 8 | UInt32(header[i + 1])
+            i += 2
+        }
+        if count % 2 != 0 {
+            sum += UInt32(header[count - 1]) << 8
+        }
+        while sum >> 16 != 0 {
+            sum = (sum & 0xFFFF) + (sum >> 16)
+        }
+        return ~UInt16(sum & 0xFFFF)
     }
 
     // MARK: - DNS Parsing

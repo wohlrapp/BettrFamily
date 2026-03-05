@@ -8,11 +8,13 @@ struct ScoreTabView: View {
     @EnvironmentObject var activityConfigService: ActivityConfigService
     @EnvironmentObject var syncService: FirebaseSyncService
     @EnvironmentObject var badgeEngine: BadgeEngine
+    @EnvironmentObject var calendarService: CalendarService
     @Environment(\.modelContext) private var modelContext
 
     @Query(sort: \DailyScore.finalScore, order: .reverse) private var allScores: [DailyScore]
     @Query(sort: \RaveEvent.timestamp, order: .reverse) private var recentRaves: [RaveEvent]
     @Query private var allBadges: [Badge]
+    @Query private var familyMembers: [FamilyMember]
 
     @State private var showActivityBreakdown = false
     @State private var showRaveSheet = false
@@ -91,10 +93,11 @@ struct ScoreTabView: View {
                         // Weekly Chart
                         WeeklyChartView()
 
-                        // Family Leaderboard
-                        if todayScores.count > 1 {
-                            leaderboardSection
-                        }
+                        // Family Calendar
+                        calendarSection
+
+                        // Family Members
+                        familyMembersSection
 
                         // Activity Breakdown Link
                         Button {
@@ -280,33 +283,144 @@ struct ScoreTabView: View {
         .padding(.horizontal)
     }
 
-    // MARK: - Leaderboard
+    // MARK: - Calendar
 
-    private var leaderboardSection: some View {
+    private var calendarSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Familie heute")
+            HStack {
+                Image(systemName: "calendar")
+                    .foregroundStyle(.blue)
+                Text("Familienkalender")
+                    .font(.headline)
+            }
+            .padding(.horizontal)
+
+            if !calendarService.isAuthorized {
+                Button("Kalender-Zugriff erlauben") {
+                    Task { await calendarService.requestAccess() }
+                }
+                .font(.subheadline)
+                .padding(.horizontal)
+            } else if calendarService.upcomingEvents.isEmpty {
+                Text("Keine anstehenden Termine.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
+            } else {
+                ForEach(calendarService.upcomingEvents.prefix(5)) { event in
+                    HStack(alignment: .top, spacing: 10) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(.blue)
+                            .frame(width: 4)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(event.title)
+                                .font(.subheadline)
+                            if event.isAllDay {
+                                Text(event.startDate, style: .date)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text(formatEventTime(event))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if let location = event.location, !location.isEmpty {
+                                Text(location)
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                }
+            }
+        }
+        .padding(.vertical, 8)
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .padding(.horizontal)
+        .task {
+            if calendarService.isAuthorized {
+                calendarService.loadUpcomingEvents()
+            }
+        }
+    }
+
+    private func formatEventTime(_ event: CalendarEvent) -> String {
+        let formatter = DateFormatter()
+        let calendar = Calendar.current
+
+        if calendar.isDateInToday(event.startDate) {
+            formatter.dateFormat = "'Heute,' HH:mm"
+        } else if calendar.isDateInTomorrow(event.startDate) {
+            formatter.dateFormat = "'Morgen,' HH:mm"
+        } else {
+            formatter.dateFormat = "E d. MMM, HH:mm"
+        }
+        formatter.locale = Locale(identifier: "de_DE")
+
+        let endFormatter = DateFormatter()
+        endFormatter.dateFormat = "HH:mm"
+
+        return "\(formatter.string(from: event.startDate)) - \(endFormatter.string(from: event.endDate))"
+    }
+
+    // MARK: - Family Members
+
+    private var familyMembersSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Familie")
                 .font(.headline)
                 .padding(.horizontal)
 
-            ForEach(todayScores.sorted(by: { $0.finalScore > $1.finalScore }), id: \.id) { score in
+            ForEach(familyMembers.sorted(by: { memberScore($0.id) > memberScore($1.id) }), id: \.id) { member in
                 HStack {
-                    Text(score.memberName)
-                        .font(.subheadline)
-                    Spacer()
-                    if score.streakDay > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "flame.fill")
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 4) {
+                            Text(member.name)
+                                .font(.subheadline)
+                            if member.id == authService.memberID {
+                                Text("(Du)")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        if let heartbeat = member.lastHeartbeat {
+                            Text(heartbeat, style: .relative)
                                 .font(.caption2)
-                                .foregroundStyle(.orange)
-                            Text("\(score.streakDay)")
-                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    Text("\(Int(score.finalScore))")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(score.finalScore > 0 ? .green : .red)
+                    Spacer()
+                    if let score = todayScores.first(where: { $0.memberID == member.id }) {
+                        if score.streakDay > 0 {
+                            HStack(spacing: 2) {
+                                Image(systemName: "flame.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                                Text("\(score.streakDay)")
+                                    .font(.caption2)
+                            }
+                        }
+                        Text("\(Int(score.finalScore))")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(score.finalScore > 0 ? .green : (score.finalScore < 0 ? .red : .primary))
+                    } else {
+                        Text("0")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .padding(.horizontal)
+            }
+
+            if familyMembers.isEmpty {
+                Text("Keine Familienmitglieder gefunden.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
             }
         }
         .padding(.vertical, 8)
@@ -315,63 +429,78 @@ struct ScoreTabView: View {
         .padding(.horizontal)
     }
 
+    private func memberScore(_ memberID: String) -> Double {
+        todayScores.first(where: { $0.memberID == memberID })?.finalScore ?? 0
+    }
+
     // MARK: - Refresh
 
     private func refreshScore() async {
         guard let memberID = authService.memberID,
               let memberName = authService.memberName else { return }
 
-        // Query HealthKit
-        let hkRecords = await healthKitService.queryDailyActivities(
-            for: Date(),
-            memberID: memberID,
-            config: activityConfigService.config,
-            modelContext: modelContext
-        )
+        let calendar = Calendar.current
+        let config = activityConfigService.config
 
-        // Insert HealthKit records
-        for record in hkRecords {
-            let activityType = record.activityType
-            let date = record.date
-            let descriptor = FetchDescriptor<ActivityRecord>(
-                predicate: #Predicate {
-                    $0.memberID == memberID && $0.date == date && $0.activityType == activityType
-                }
-            )
-            if let existing = try? modelContext.fetch(descriptor).first {
-                existing.rawValue = record.rawValue
-                existing.points = record.points
-                existing.syncedToFirebase = false
-            } else {
-                modelContext.insert(record)
-            }
-        }
-        try? modelContext.save()
+        // Process last 7 days
+        for dayOffset in (0...6).reversed() {
+            let date = calendar.date(byAdding: .day, value: -dayOffset, to: Date())!
+            let startOfDay = calendar.startOfDay(for: date)
 
-        // Process screen time records
-        let startOfDay = Calendar.current.startOfDay(for: Date())
-        let usageDescriptor = FetchDescriptor<UsageRecord>(
-            predicate: #Predicate { $0.memberID == memberID && $0.date == startOfDay }
-        )
-        if let usageRecords = try? modelContext.fetch(usageDescriptor) {
-            pointsEngine.processScreenTimeRecords(
-                usageRecords: usageRecords,
+            // Query HealthKit for this day
+            let hkRecords = await healthKitService.queryDailyActivities(
+                for: date,
                 memberID: memberID,
-                date: Date(),
-                config: activityConfigService.config,
+                config: config,
+                modelContext: modelContext
+            )
+
+            // Insert/update HealthKit records (don't overwrite manual records)
+            for record in hkRecords {
+                let activityType = record.activityType
+                let recordDate = record.date
+                let descriptor = FetchDescriptor<ActivityRecord>(
+                    predicate: #Predicate {
+                        $0.memberID == memberID && $0.date == recordDate && $0.activityType == activityType
+                    }
+                )
+                if let existing = try? modelContext.fetch(descriptor).first {
+                    if existing.source == "healthkit" {
+                        existing.rawValue = record.rawValue
+                        existing.points = record.points
+                        existing.syncedToFirebase = false
+                    }
+                } else {
+                    modelContext.insert(record)
+                }
+            }
+
+            // Process screen time records for this day
+            let usageDescriptor = FetchDescriptor<UsageRecord>(
+                predicate: #Predicate { $0.memberID == memberID && $0.date == startOfDay }
+            )
+            if let usageRecords = try? modelContext.fetch(usageDescriptor), !usageRecords.isEmpty {
+                pointsEngine.processScreenTimeRecords(
+                    usageRecords: usageRecords,
+                    memberID: memberID,
+                    date: date,
+                    config: config,
+                    modelContext: modelContext
+                )
+            }
+
+            // Calculate daily score
+            pointsEngine.calculateDailyScore(
+                for: date,
+                memberID: memberID,
+                memberName: memberName,
                 modelContext: modelContext
             )
         }
 
-        // Calculate score
-        pointsEngine.calculateDailyScore(
-            for: Date(),
-            memberID: memberID,
-            memberName: memberName,
-            modelContext: modelContext
-        )
+        try? modelContext.save()
 
-        // Update streak
+        // Update streak (based on full history)
         pointsEngine.updateStreak(for: Date(), memberID: memberID, modelContext: modelContext)
 
         // Check badges
