@@ -83,6 +83,7 @@ struct ComplianceEventRow: View {
         case .monitoredAppUsed: return "app.fill"
         case .monitoredDomainAccessed: return "globe"
         case .screenTimeAuthRevoked: return "exclamationmark.triangle.fill"
+        case .socialMediaUsed: return "app.badge"
         case nil: return "questionmark.circle"
         }
     }
@@ -92,6 +93,7 @@ struct ComplianceEventRow: View {
         case .vpnDisabled, .heartbeatMissing, .screenTimeAuthRevoked: return .red
         case .vpnEnabled: return .green
         case .monitoredAppUsed, .monitoredDomainAccessed: return .orange
+        case .socialMediaUsed: return .purple
         case nil: return .gray
         }
     }

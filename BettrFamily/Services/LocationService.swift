@@ -21,17 +21,17 @@ final class LocationService: NSObject, ObservableObject {
     // Family-specific BLE service UUID derived from familyGroupID
     private var familyServiceUUID: CBUUID? {
         guard let familyGroupID else { return nil }
-        // Create a deterministic UUID from familyGroupID
-        let hash = familyGroupID.data(using: .utf8)!
-        let uuidString = UUID(uuid: hash.withUnsafeBytes { ptr in
-            var uuid = uuid_t()
-            withUnsafeMutableBytes(of: &uuid) { dest in
-                let count = min(dest.count, ptr.count)
-                dest.copyBytes(from: UnsafeRawBufferPointer(rebasing: ptr.prefix(count)))
-            }
-            return uuid
-        }).uuidString
-        return CBUUID(string: uuidString)
+        // Create a deterministic UUID5-like value from familyGroupID
+        // Pad or truncate to 16 bytes for uuid_t
+        var bytes = Array(familyGroupID.utf8)
+        while bytes.count < 16 { bytes.append(0) }
+        let uuid = uuid_t(
+            bytes[0], bytes[1], bytes[2], bytes[3],
+            bytes[4], bytes[5], bytes[6], bytes[7],
+            bytes[8], bytes[9], bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15]
+        )
+        return CBUUID(string: UUID(uuid: uuid).uuidString)
     }
 
     private let memberIDCharacteristicUUID = CBUUID(string: "2A00")

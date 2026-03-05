@@ -33,9 +33,10 @@ final class DailyScore {
         self.positivePoints = positivePoints
         self.negativePoints = negativePoints
         self.bonusPoints = bonusPoints
-        self.rawTotal = positivePoints + negativePoints + bonusPoints
+        let total = positivePoints + negativePoints + bonusPoints
+        self.rawTotal = total
         self.streakMultiplier = streakMultiplier
-        self.finalScore = rawTotal * streakMultiplier
+        self.finalScore = total * streakMultiplier
         self.streakDay = streakDay
         self.syncedToFirebase = false
     }
