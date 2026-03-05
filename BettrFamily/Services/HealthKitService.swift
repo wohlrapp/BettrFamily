@@ -13,6 +13,13 @@ final class HealthKitService: ObservableObject {
         HKHealthStore.isHealthDataAvailable()
     }
 
+    init() {
+        // Restore authorization state from UserDefaults (HealthKit doesn't provide a direct check for read-only auth)
+        if UserDefaults.shared.bool(forKey: AppConstants.UserDefaultsKeys.healthKitAuthorized) {
+            isAuthorized = true
+        }
+    }
+
     // MARK: - Authorization
 
     func requestAuthorization() async {

@@ -34,6 +34,9 @@ struct ActivityPointConfig: Codable, Identifiable {
         ActivityPointConfig(activityType: "lateNightScreen", displayName: "Spaete Bildschirmzeit (>22h)", category: "bad", pointsPerUnit: -3, unitThreshold: 1, unit: "count", isEnabled: true),
         ActivityPointConfig(activityType: "shortSleep", displayName: "Wenig Schlaf (<6h)", category: "bad", pointsPerUnit: -5, unitThreshold: 1, unit: "flat", isEnabled: true),
         ActivityPointConfig(activityType: "alcohol", displayName: "Alkohol", category: "bad", pointsPerUnit: -2, unitThreshold: 1, unit: "count", isEnabled: true),
+        ActivityPointConfig(activityType: "socialMediaDomain", displayName: "Social Media (Browser)", category: "bad", pointsPerUnit: -2, unitThreshold: 1, unit: "count", isEnabled: true),
+        ActivityPointConfig(activityType: "streamingDomain", displayName: "Streaming (Browser)", category: "bad", pointsPerUnit: -1, unitThreshold: 1, unit: "count", isEnabled: true),
+        ActivityPointConfig(activityType: "gamingDomain", displayName: "Gaming (Browser)", category: "bad", pointsPerUnit: -1, unitThreshold: 1, unit: "count", isEnabled: true),
 
         // Bonus
         ActivityPointConfig(activityType: "proximity", displayName: "Zusammen (BLE)", category: "bonus", pointsPerUnit: 3, unitThreshold: 30, unit: "minutes", isEnabled: true),
@@ -57,8 +60,43 @@ struct FamilyActivityConfig: Codable {
         "com.reddit.Reddit"
     ]
 
+    var socialMediaDomains: [String]
+    var streamingDomains: [String]
+    var gamingDomains: [String]
+
+    static let defaultSocialMediaDomains = [
+        "instagram.com",
+        "tiktok.com",
+        "snapchat.com",
+        "youtube.com",
+        "facebook.com",
+        "twitter.com",
+        "x.com",
+        "reddit.com",
+        "threads.net"
+    ]
+
+    static let defaultStreamingDomains = [
+        "netflix.com",
+        "disneyplus.com",
+        "primevideo.com",
+        "hbomax.com",
+        "max.com",
+        "twitch.tv"
+    ]
+
+    static let defaultGamingDomains = [
+        "roblox.com",
+        "fortnite.com",
+        "epicgames.com",
+        "supercell.com"
+    ]
+
     static let `default` = FamilyActivityConfig(
         activities: ActivityPointConfig.defaults,
-        socialMediaBundleIDs: defaultSocialMediaBundleIDs
+        socialMediaBundleIDs: defaultSocialMediaBundleIDs,
+        socialMediaDomains: defaultSocialMediaDomains,
+        streamingDomains: defaultStreamingDomains,
+        gamingDomains: defaultGamingDomains
     )
 }

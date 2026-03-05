@@ -15,10 +15,12 @@ struct ScoreTabView: View {
     @Query(sort: \RaveEvent.timestamp, order: .reverse) private var recentRaves: [RaveEvent]
     @Query private var allBadges: [Badge]
     @Query private var familyMembers: [FamilyMember]
+    @Query(sort: \ActivityRecord.points, order: .reverse) private var allActivityRecords: [ActivityRecord]
 
     @State private var showActivityBreakdown = false
     @State private var showRaveSheet = false
     @State private var showBadges = false
+    @State private var showHealthDetail = false
     @State private var earnedBadge: BadgeDefinition?
 
     private var todayScores: [DailyScore] {
@@ -26,9 +28,20 @@ struct ScoreTabView: View {
         return allScores.filter { $0.date == startOfDay }
     }
 
-    private var myScore: DailyScore? {
-        guard let memberID = authService.memberID else { return nil }
-        return todayScores.first { $0.memberID == memberID }
+    private var familyHealthScore: Double {
+        todayScores.reduce(0) { $0 + $1.finalScore }
+    }
+
+    private var familyPositivePoints: Double {
+        todayScores.reduce(0) { $0 + $1.positivePoints }
+    }
+
+    private var familyNegativePoints: Double {
+        todayScores.reduce(0) { $0 + $1.negativePoints }
+    }
+
+    private var familyBonusPoints: Double {
+        todayScores.reduce(0) { $0 + $1.bonusPoints }
     }
 
     private var myBadgeCount: Int {
@@ -36,18 +49,22 @@ struct ScoreTabView: View {
         return allBadges.filter { $0.memberID == memberID }.count
     }
 
+    private var todayActivityRecords: [ActivityRecord] {
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        return allActivityRecords.filter { $0.date == startOfDay }
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Today's Score Card
-                        scoreCard
+                        // Family Health Score Card (tap for detail)
+                        familyHealthCard
+                            .onTapGesture { showHealthDetail = true }
 
-                        // Streak Banner
-                        if let streak = pointsEngine.currentStreak, streak.currentStreak > 0 {
-                            streakBanner(streak)
-                        }
+                        // Contributors
+                        contributorsSection
 
                         // Action buttons row
                         HStack(spacing: 12) {
@@ -86,7 +103,7 @@ struct ScoreTabView: View {
                         .padding(.horizontal)
 
                         // Recent RAVEs
-                        if !todayRaves.isEmpty {
+                        if !weekRaves.isEmpty {
                             recentRavesSection
                         }
 
@@ -95,9 +112,6 @@ struct ScoreTabView: View {
 
                         // Family Calendar
                         calendarSection
-
-                        // Family Members
-                        familyMembersSection
 
                         // Activity Breakdown Link
                         Button {
@@ -131,7 +145,7 @@ struct ScoreTabView: View {
                 }
             }
             .animation(.spring, value: earnedBadge != nil)
-            .navigationTitle("Punkte")
+            .navigationTitle("Family Health")
             .sheet(isPresented: $showActivityBreakdown) {
                 ActivityBreakdownView()
             }
@@ -140,6 +154,13 @@ struct ScoreTabView: View {
             }
             .sheet(isPresented: $showBadges) {
                 BadgesView()
+            }
+            .sheet(isPresented: $showHealthDetail) {
+                FamilyHealthDetailView(
+                    todayScores: todayScores,
+                    familyMembers: familyMembers,
+                    todayActivityRecords: todayActivityRecords
+                )
             }
             .task {
                 await refreshScore()
@@ -156,27 +177,28 @@ struct ScoreTabView: View {
         }
     }
 
-    // MARK: - Score Card
+    // MARK: - Family Health Card
 
-    private var scoreCard: some View {
-        VStack(spacing: 8) {
-            Text("Heute")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            Text("\(Int(myScore?.finalScore ?? 0))")
-                .font(.system(size: 56, weight: .bold, design: .rounded))
-                .foregroundStyle(scoreColor)
-
-            if let score = myScore, score.streakMultiplier > 1.0 {
-                Text("\(Int(score.rawTotal)) × \(String(format: "%.1f", score.streakMultiplier))x")
-                    .font(.caption)
+    private var familyHealthCard: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "heart.fill")
+                    .foregroundStyle(.red)
+                Text("Family Health")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
 
+            Text("\(Int(familyHealthScore))")
+                .font(.system(size: 64, weight: .bold, design: .rounded))
+                .foregroundStyle(familyScoreColor)
+
+            // Health bar
+            healthBar
+
             HStack(spacing: 24) {
                 VStack {
-                    Text("+\(Int(myScore?.positivePoints ?? 0))")
+                    Text("+\(Int(familyPositivePoints))")
                         .foregroundStyle(.green)
                         .font(.headline)
                     Text("Positiv")
@@ -184,7 +206,7 @@ struct ScoreTabView: View {
                         .foregroundStyle(.secondary)
                 }
                 VStack {
-                    Text("\(Int(myScore?.negativePoints ?? 0))")
+                    Text("\(Int(familyNegativePoints))")
                         .foregroundStyle(.red)
                         .font(.headline)
                     Text("Negativ")
@@ -192,13 +214,19 @@ struct ScoreTabView: View {
                         .foregroundStyle(.secondary)
                 }
                 VStack {
-                    Text("+\(Int(myScore?.bonusPoints ?? 0))")
+                    Text("+\(Int(familyBonusPoints))")
                         .foregroundStyle(.orange)
                         .font(.headline)
                     Text("Bonus")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            if !familyMembers.isEmpty {
+                Text("\(familyMembers.count) Mitglieder")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
         }
         .frame(maxWidth: .infinity)
@@ -208,66 +236,259 @@ struct ScoreTabView: View {
         .padding(.horizontal)
     }
 
-    private var scoreColor: Color {
-        guard let score = myScore else { return .primary }
-        if score.finalScore > 0 { return .green }
-        if score.finalScore < 0 { return .red }
+    private var healthBar: some View {
+        let maxExpected = max(Double(familyMembers.count) * 30.0, 1.0)
+        let progress = min(max(familyHealthScore / maxExpected, -1.0), 1.0)
+
+        return GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(.gray.opacity(0.2))
+                    .frame(height: 8)
+
+                if progress >= 0 {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(
+                            LinearGradient(
+                                colors: [.green.opacity(0.7), .green],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * progress, height: 8)
+                } else {
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(
+                            LinearGradient(
+                                colors: [.red, .red.opacity(0.7)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: geo.size.width * abs(progress), height: 8)
+                }
+            }
+        }
+        .frame(height: 8)
+        .padding(.horizontal, 8)
+    }
+
+    private var familyScoreColor: Color {
+        if familyHealthScore > 0 { return .green }
+        if familyHealthScore < 0 { return .red }
         return .primary
     }
 
-    // MARK: - Streak Banner
+    // MARK: - Contributors
 
-    private func streakBanner(_ streak: StreakRecord) -> some View {
-        HStack {
-            Image(systemName: "flame.fill")
-                .foregroundStyle(.orange)
-                .font(.title2)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(streak.currentStreak) Tage Streak")
-                    .font(.headline)
-                Text("Multiplikator: \(String(format: "%.1f", streak.streakMultiplier))x")
+    private var contributorsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Beitraege")
+                .font(.headline)
+                .padding(.horizontal)
+
+            let sorted = familyMembers.sorted { memberScore($0.id) > memberScore($1.id) }
+
+            ForEach(sorted, id: \.id) { member in
+                contributorRow(member)
+            }
+
+            if familyMembers.isEmpty {
+                Text("Keine Familienmitglieder gefunden.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-            }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(Int(streak.totalAccumulatedPoints))")
-                    .font(.headline)
-                Text("Gesamt")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .padding(.horizontal)
             }
         }
-        .padding()
-        .background(
-            LinearGradient(colors: [.orange.opacity(0.2), .red.opacity(0.1)], startPoint: .leading, endPoint: .trailing)
-        )
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal)
     }
 
+    private func contributorRow(_ member: FamilyMember) -> some View {
+        let score = todayScores.first(where: { $0.memberID == member.id })
+        let memberActivities = todayActivityRecords.filter { $0.memberID == member.id }
+        let topPositive = memberActivities
+            .filter { $0.category == "positive" && $0.points > 0 }
+            .sorted { $0.points > $1.points }
+            .prefix(3)
+        let topNegative = memberActivities
+            .filter { $0.category == "bad" && $0.points < 0 }
+            .sorted { $0.points < $1.points }
+            .prefix(2)
+
+        return VStack(spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(member.name)
+                            .font(.subheadline.bold())
+                        if member.id == authService.memberID {
+                            Text("(Du)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    if let streak = score, streak.streakDay > 0 {
+                        HStack(spacing: 2) {
+                            Image(systemName: "flame.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                            Text("\(streak.streakDay) Tage Streak")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                Spacer()
+                Text("\(Int(score?.finalScore ?? 0))")
+                    .font(.title3.bold())
+                    .foregroundStyle(scoreColor(for: score?.finalScore ?? 0))
+            }
+            .padding(.horizontal)
+
+            // Top activities for this contributor
+            if !topPositive.isEmpty || !topNegative.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(topPositive), id: \.id) { activity in
+                            activityChip(activity)
+                        }
+                        ForEach(Array(topNegative), id: \.id) { activity in
+                            activityChip(activity)
+                        }
+                    }
+                    .padding(.horizontal)
+                }
+            }
+
+            if member.id != familyMembers.sorted(by: { memberScore($0.id) > memberScore($1.id) }).last?.id {
+                Divider()
+                    .padding(.horizontal)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func activityChip(_ record: ActivityRecord) -> some View {
+        let isPositive = record.points >= 0
+        return HStack(spacing: 3) {
+            Image(systemName: iconForActivity(record.activityType))
+                .font(.caption2)
+            Text(shortDisplayName(for: record.activityType))
+                .font(.caption2)
+            Text(isPositive ? "+\(Int(record.points))" : "\(Int(record.points))")
+                .font(.caption2.bold())
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(isPositive ? Color.green.opacity(0.15) : Color.red.opacity(0.15))
+        .foregroundStyle(isPositive ? .green : .red)
+        .clipShape(Capsule())
+    }
+
+    private func scoreColor(for score: Double) -> Color {
+        if score > 0 { return .green }
+        if score < 0 { return .red }
+        return .primary
+    }
+
+    // MARK: - Activity Helpers
+
+    private func iconForActivity(_ type: String) -> String {
+        switch type {
+        case "steps": return "figure.walk"
+        case "distanceWalking": return "figure.run"
+        case "distanceCycling": return "figure.outdoor.cycle"
+        case "activeEnergy": return "flame"
+        case "exerciseTime": return "timer"
+        case "workouts": return "dumbbell"
+        case "flightsClimbed": return "stairs"
+        case "mindfulSession": return "brain.head.profile"
+        case "goodSleep": return "bed.double.fill"
+        case "shortSleep": return "bed.double"
+        case "timeInDaylight": return "sun.max"
+        case "standHours": return "figure.stand"
+        case "toothbrushing": return "mouth"
+        case "excessiveScreenTime": return "iphone"
+        case "socialMedia": return "app.badge"
+        case "gaming": return "gamecontroller"
+        case "lateNightScreen": return "moon.fill"
+        case "alcohol": return "wineglass"
+        case "proximity": return "person.2"
+        case "coLocation": return "location"
+        case "sharedWorkout": return "figure.2.and.child.holdinghands"
+        case "streaming": return "play.tv"
+        case "socialMediaDomain": return "globe"
+        case "streamingDomain": return "globe"
+        case "gamingDomain": return "globe"
+        case "rave": return "star.fill"
+        default:
+            if type.hasPrefix("manual_") { return "hand.thumbsup.fill" }
+            return "circle"
+        }
+    }
+
+    private func shortDisplayName(for type: String) -> String {
+        if type.hasPrefix("manual_") {
+            return String(type.dropFirst("manual_".count))
+        }
+        switch type {
+        case "steps": return "Schritte"
+        case "distanceWalking": return "Gehen"
+        case "distanceCycling": return "Rad"
+        case "activeEnergy": return "Energie"
+        case "exerciseTime": return "Training"
+        case "workouts": return "Workout"
+        case "flightsClimbed": return "Stockwerke"
+        case "mindfulSession": return "Achtsamkeit"
+        case "goodSleep": return "Schlaf"
+        case "shortSleep": return "Schlaf"
+        case "timeInDaylight": return "Tageslicht"
+        case "standHours": return "Stehen"
+        case "toothbrushing": return "Zaehne"
+        case "excessiveScreenTime": return "Bildschirm"
+        case "socialMedia": return "Social Media"
+        case "gaming": return "Gaming"
+        case "lateNightScreen": return "Nachts"
+        case "alcohol": return "Alkohol"
+        case "proximity": return "Zusammen"
+        case "streaming": return "Streaming"
+        case "socialMediaDomain": return "Social (Web)"
+        case "streamingDomain": return "Streaming (Web)"
+        case "gamingDomain": return "Gaming (Web)"
+        default: return type
+        }
+    }
+
     // MARK: - Recent RAVEs
 
-    private var todayRaves: [RaveEvent] {
-        let startOfDay = Calendar.current.startOfDay(for: Date())
-        return recentRaves.filter { $0.date == startOfDay }
+    private var weekRaves: [RaveEvent] {
+        let calendar = Calendar.current
+        let weekAgo = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -6, to: Date())!)
+        return recentRaves.filter { $0.date >= weekAgo }
     }
 
     private var recentRavesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Heutige RAVEs")
+            Text("RAVEs (letzte 7 Tage)")
                 .font(.headline)
                 .padding(.horizontal)
 
-            ForEach(todayRaves.prefix(5), id: \.id) { rave in
+            ForEach(weekRaves.prefix(10), id: \.id) { rave in
                 HStack {
                     Text(rave.emoji)
                     VStack(alignment: .leading) {
                         Text("\(rave.fromMemberName) → \(rave.toMemberName)")
                             .font(.subheadline)
-                        Text(rave.reason)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        HStack(spacing: 4) {
+                            Text(rave.reason)
+                            Text("·")
+                            Text(rave.timestamp, style: .relative)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Text("+\(Int(rave.points))")
@@ -367,68 +588,6 @@ struct ScoreTabView: View {
         return "\(formatter.string(from: event.startDate)) - \(endFormatter.string(from: event.endDate))"
     }
 
-    // MARK: - Family Members
-
-    private var familyMembersSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Familie")
-                .font(.headline)
-                .padding(.horizontal)
-
-            ForEach(familyMembers.sorted(by: { memberScore($0.id) > memberScore($1.id) }), id: \.id) { member in
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Text(member.name)
-                                .font(.subheadline)
-                            if member.id == authService.memberID {
-                                Text("(Du)")
-                                    .font(.caption2)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        if let heartbeat = member.lastHeartbeat {
-                            Text(heartbeat, style: .relative)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Spacer()
-                    if let score = todayScores.first(where: { $0.memberID == member.id }) {
-                        if score.streakDay > 0 {
-                            HStack(spacing: 2) {
-                                Image(systemName: "flame.fill")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                                Text("\(score.streakDay)")
-                                    .font(.caption2)
-                            }
-                        }
-                        Text("\(Int(score.finalScore))")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(score.finalScore > 0 ? .green : (score.finalScore < 0 ? .red : .primary))
-                    } else {
-                        Text("0")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.horizontal)
-            }
-
-            if familyMembers.isEmpty {
-                Text("Keine Familienmitglieder gefunden.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal)
-            }
-        }
-        .padding(.vertical, 8)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .padding(.horizontal)
-    }
-
     private func memberScore(_ memberID: String) -> Double {
         todayScores.first(where: { $0.memberID == memberID })?.finalScore ?? 0
     }
@@ -442,76 +601,68 @@ struct ScoreTabView: View {
         let calendar = Calendar.current
         let config = activityConfigService.config
 
-        // Process last 7 days
+        // Recalculate scores for last 7 days
         for dayOffset in (0...6).reversed() {
             let date = calendar.date(byAdding: .day, value: -dayOffset, to: Date())!
-            let startOfDay = calendar.startOfDay(for: date)
 
-            // Query HealthKit for this day
-            let hkRecords = await healthKitService.queryDailyActivities(
-                for: date,
+            if healthKitService.isAuthorized {
+                let hkRecords = await healthKitService.queryDailyActivities(
+                    for: date,
+                    memberID: memberID,
+                    config: config,
+                    modelContext: modelContext
+                )
+
+                for record in hkRecords {
+                    let activityType = record.activityType
+                    let recordDate = record.date
+                    let descriptor = FetchDescriptor<ActivityRecord>(
+                        predicate: #Predicate {
+                            $0.memberID == memberID && $0.date == recordDate && $0.activityType == activityType
+                        }
+                    )
+                    if let existing = try? modelContext.fetch(descriptor).first {
+                        if existing.source == "healthkit" {
+                            existing.rawValue = record.rawValue
+                            existing.points = record.points
+                            existing.syncedToFirebase = false
+                        }
+                    } else {
+                        modelContext.insert(record)
+                    }
+                }
+            }
+
+            // Process domain records (VPN/DNS) for this day
+            pointsEngine.processDomainRecords(
                 memberID: memberID,
+                memberName: memberName,
+                date: date,
                 config: config,
                 modelContext: modelContext
             )
 
-            // Insert/update HealthKit records (don't overwrite manual records)
-            for record in hkRecords {
-                let activityType = record.activityType
-                let recordDate = record.date
-                let descriptor = FetchDescriptor<ActivityRecord>(
-                    predicate: #Predicate {
-                        $0.memberID == memberID && $0.date == recordDate && $0.activityType == activityType
-                    }
-                )
-                if let existing = try? modelContext.fetch(descriptor).first {
-                    if existing.source == "healthkit" {
-                        existing.rawValue = record.rawValue
-                        existing.points = record.points
-                        existing.syncedToFirebase = false
-                    }
-                } else {
-                    modelContext.insert(record)
-                }
-            }
-
-            // Process screen time records for this day
-            let usageDescriptor = FetchDescriptor<UsageRecord>(
-                predicate: #Predicate { $0.memberID == memberID && $0.date == startOfDay }
-            )
-            if let usageRecords = try? modelContext.fetch(usageDescriptor), !usageRecords.isEmpty {
-                pointsEngine.processScreenTimeRecords(
-                    usageRecords: usageRecords,
-                    memberID: memberID,
-                    date: date,
-                    config: config,
-                    modelContext: modelContext
-                )
-            }
-
-            // Calculate daily score
             pointsEngine.calculateDailyScore(
                 for: date,
                 memberID: memberID,
                 memberName: memberName,
                 modelContext: modelContext
             )
+
+            // Recalculate DailyScores for other family members (picks up RAVEs, synced records)
+            for member in familyMembers where member.id != memberID {
+                pointsEngine.calculateDailyScore(
+                    for: date,
+                    memberID: member.id,
+                    memberName: member.name,
+                    modelContext: modelContext
+                )
+            }
         }
 
         try? modelContext.save()
 
-        // Update streak (based on full history)
         pointsEngine.updateStreak(for: Date(), memberID: memberID, modelContext: modelContext)
-
-        // Check badges
         badgeEngine.checkAndAwardBadges(memberID: memberID, modelContext: modelContext)
-
-        // Sync to Firebase
-        if let familyGroupID = authService.familyGroupID {
-            await syncService.syncActivityRecords(from: modelContext, familyGroupID: familyGroupID)
-            await syncService.syncDailyScores(from: modelContext, familyGroupID: familyGroupID)
-            await syncService.syncStreakRecords(from: modelContext, familyGroupID: familyGroupID)
-            await syncService.syncBadges(from: modelContext, familyGroupID: familyGroupID)
-        }
     }
 }

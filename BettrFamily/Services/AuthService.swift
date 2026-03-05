@@ -10,6 +10,7 @@ final class AuthService: ObservableObject {
     @Published var memberName: String?
     @Published var familyGroupID: String?
     @Published var isAuthenticated = false
+    @Published var onboardingComplete = UserDefaults.shared.bool(forKey: AppConstants.UserDefaultsKeys.onboardingComplete)
     @Published var errorMessage: String?
 
     private var authStateListener: AuthStateDidChangeListenerHandle?
@@ -87,6 +88,7 @@ final class AuthService: ObservableObject {
         memberName = nil
         familyGroupID = nil
         isAuthenticated = false
+        onboardingComplete = false
     }
 
     private func loadMemberProfile(uid: String) async {

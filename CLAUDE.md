@@ -27,7 +27,7 @@ firebase deploy --only functions
 
 **iOS app (Swift 5.9, iOS 17+, SwiftUI + SwiftData)**
 
-The app is a family compliance monitoring tool where all members are equal (no parent/child hierarchy). It tracks screen time, domain access, location, health data, and generates daily scores.
+The app is a family wellness tool where all members are equal (no parent/child hierarchy). It tracks screen time, domain access, location, health data, and generates daily scores.
 
 ### Targets (defined in `project.yml`)
 
@@ -40,28 +40,47 @@ The app is a family compliance monitoring tool where all members are equal (no p
 
 All targets share code from `Shared/` and use the App Group `group.com.bettrfamily.shared` for data sharing.
 
+### App Flow
+
+`BettrFamilyApp.swift` → `RootView` routes based on auth state:
+- Not authenticated → `LoginView`
+- Authenticated but not onboarded → `SetupView`
+- Authenticated + onboarded → `MainTabView`
+
 ### Services (`BettrFamily/Services/`)
 
-Services are `@StateObject`s injected as `@EnvironmentObject` from `BettrFamilyApp.swift`:
+All services are `@MainActor` `ObservableObject`s, created as `@StateObject` in `BettrFamilyApp` and injected via `@EnvironmentObject`:
 
-- **AuthService** - Firebase Auth (email/password)
-- **ScreenTimeService** - FamilyControls/DeviceActivity API
-- **VPNStatusMonitor** - Monitors PacketTunnel extension status
-- **FirebaseSyncService** - Syncs SwiftData records to Firestore (unsynced records have `syncedToFirebase = false`)
-- **FamilyMonitorService** - Monitors other family members' compliance
-- **HealthKitService** - Step count, exercise minutes
-- **PointsEngine** - Calculates daily scores from activities
-- **LocationService** - CoreLocation tracking
-- **ActivityConfigService** - Manages monitored app/domain configuration
-- **BadgeEngine** - Achievement/badge system
-- **HeartbeatService** - BGTaskScheduler-based heartbeats (singleton)
+- **AuthService** — Firebase Auth (email/password)
+- **ScreenTimeService** — FamilyControls/DeviceActivity API
+- **VPNStatusMonitor** — Monitors PacketTunnel extension status
+- **FirebaseSyncService** — Syncs SwiftData records to Firestore (unsynced records have `syncedToFirebase = false`)
+- **FamilyMonitorService** — Monitors other family members' compliance
+- **HealthKitService** — Steps, exercise, sleep, stand hours, daylight, workouts, and more from Apple Health
+- **PointsEngine** — Calculates daily scores from ActivityRecords; manages streaks
+- **LocationService** — CoreLocation tracking
+- **ActivityConfigService** — Manages configurable point values per activity type (`FamilyActivityConfig`)
+- **BadgeEngine** — Achievement/badge system (26 badges across 4 categories)
+- **CalendarService** — EventKit integration for family calendar
+- **HeartbeatService** — BGTaskScheduler-based heartbeats (singleton, accessed via `.shared`)
 
 ### Data Layer
 
-- **SwiftData** models in `Shared/` (UsageRecord, DomainRecord, ComplianceEvent, DailyScore, Badge, etc.)
+- **SwiftData** models in `Shared/` (UsageRecord, DomainRecord, ComplianceEvent, DailyScore, Badge, ActivityRecord, StreakRecord, LocationSnapshot, ProximityEvent, RaveEvent, FamilyMember, ActivityConfig)
 - All models have a `syncedToFirebase` flag; `FirebaseSyncService` pushes unsynced records
+- Models expose a `firestoreData` computed property (`[String: Any]`) for Firestore serialization
 - **ModelContainer** uses App Group for cross-extension data sharing
 - **Firestore** structure: `families/{familyID}/{collection}` for most data; `members/{memberID}` for member profiles
+- **UserDefaults.shared** is the App Group `UserDefaults` (extension in `Shared/Constants.swift`)
+
+### Scoring System
+
+`PointsEngine` calculates scores from `ActivityRecord`s grouped by category:
+- **positive** — Steps, walking distance, workouts, sleep, exercise
+- **bad** — Excessive screen time (>2h), social media, streaming, gaming, late-night screen
+- **bonus** — Family proximity, RAVEs from other members, manual activities (chores)
+
+Streak multiplier: 2 days = 1.5x, 7 days = 2.0x, 30+ days = 3.0x
 
 ### Shared Constants
 
@@ -71,5 +90,6 @@ Services are `@StateObject`s injected as `@EnvironmentObject` from `BettrFamilyA
 
 - Requires `GoogleService-Info.plist` (gitignored) for Firebase
 - Requires Apple entitlements: `com.apple.developer.family-controls` and `com.apple.developer.networking.networkextension` (must be requested from Apple)
+- Screen Time APIs require a **physical device** (not simulator)
 - Development team: `87N5NSN3D8`
 - iPhone only (`TARGETED_DEVICE_FAMILY: "1"`)

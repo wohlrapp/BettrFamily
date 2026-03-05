@@ -10,7 +10,7 @@ final class LocationService: NSObject, ObservableObject {
     @Published var nearbyMembers: [String] = []
     @Published var errorMessage: String?
 
-    private var locationManager: CLLocationManager?
+    private(set) var locationManager: CLLocationManager?
     private var peripheralManager: CBPeripheralManager?
     private var centralManager: CBCentralManager?
 
@@ -35,6 +35,14 @@ final class LocationService: NSObject, ObservableObject {
     }
 
     private let memberIDCharacteristicUUID = CBUUID(string: "2A00")
+
+    override init() {
+        super.init()
+        // Check current authorization status without triggering a prompt
+        let manager = CLLocationManager()
+        let status = manager.authorizationStatus
+        isLocationAuthorized = (status == .authorizedWhenInUse || status == .authorizedAlways)
+    }
 
     // MARK: - Setup
 

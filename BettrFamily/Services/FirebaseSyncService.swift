@@ -292,6 +292,127 @@ final class FirebaseSyncService: ObservableObject {
         }
     }
 
+    // MARK: - Fetch Remote Data (from other family members)
+
+    func fetchAndStoreRemoteRaves(familyGroupID: String, modelContext: ModelContext) async {
+        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
+        let startTimestamp = Calendar.current.startOfDay(for: sevenDaysAgo).timeIntervalSince1970
+
+        do {
+            let snapshot = try await db.collection(AppConstants.FirestoreCollections.families)
+                .document(familyGroupID)
+                .collection(AppConstants.FirestoreCollections.raveEvents)
+                .whereField("timestamp", isGreaterThan: startTimestamp)
+                .getDocuments()
+
+            for doc in snapshot.documents {
+                let data = doc.data()
+                let raveID = data["id"] as? String ?? doc.documentID
+
+                // Check if already exists locally
+                let descriptor = FetchDescriptor<RaveEvent>(
+                    predicate: #Predicate { $0.id == raveID }
+                )
+                if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { continue }
+
+                let rave = RaveEvent(
+                    fromMemberID: data["fromMemberID"] as? String ?? "",
+                    fromMemberName: data["fromMemberName"] as? String ?? "",
+                    toMemberID: data["toMemberID"] as? String ?? "",
+                    toMemberName: data["toMemberName"] as? String ?? "",
+                    reason: data["reason"] as? String ?? "",
+                    points: data["points"] as? Double ?? 5,
+                    emoji: data["emoji"] as? String ?? "🌟"
+                )
+                rave.id = raveID
+                if let ts = data["timestamp"] as? Double {
+                    rave.timestamp = Date(timeIntervalSince1970: ts)
+                }
+                if let d = data["date"] as? Double {
+                    rave.date = Date(timeIntervalSince1970: d)
+                }
+                rave.syncedToFirebase = true
+                modelContext.insert(rave)
+            }
+            try? modelContext.save()
+        } catch {
+            print("Failed to fetch remote RAVEs: \(error)")
+        }
+    }
+
+    func fetchAndStoreRemoteBadges(familyGroupID: String, memberID: String, modelContext: ModelContext) async {
+        do {
+            let snapshot = try await db.collection(AppConstants.FirestoreCollections.families)
+                .document(familyGroupID)
+                .collection(AppConstants.FirestoreCollections.badges)
+                .whereField("memberID", isEqualTo: memberID)
+                .getDocuments()
+
+            for doc in snapshot.documents {
+                let data = doc.data()
+                let badgeID = data["id"] as? String ?? doc.documentID
+                let badgeType = data["badgeType"] as? String ?? ""
+
+                let descriptor = FetchDescriptor<Badge>(
+                    predicate: #Predicate { $0.id == badgeID }
+                )
+                if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { continue }
+
+                let badge = Badge(memberID: memberID, badgeType: badgeType)
+                badge.id = badgeID
+                if let d = data["earnedDate"] as? Double {
+                    badge.earnedDate = Date(timeIntervalSince1970: d)
+                }
+                badge.syncedToFirebase = true
+                modelContext.insert(badge)
+            }
+            try? modelContext.save()
+        } catch {
+            print("Failed to fetch remote badges: \(error)")
+        }
+    }
+
+    func fetchAndStoreRemoteDailyScores(familyGroupID: String, modelContext: ModelContext) async {
+        let sevenDaysAgo = Calendar.current.date(byAdding: .day, value: -7, to: Date())!
+        let startTimestamp = Calendar.current.startOfDay(for: sevenDaysAgo).timeIntervalSince1970
+
+        do {
+            let snapshot = try await db.collection(AppConstants.FirestoreCollections.families)
+                .document(familyGroupID)
+                .collection(AppConstants.FirestoreCollections.dailyScores)
+                .whereField("date", isGreaterThanOrEqualTo: startTimestamp)
+                .getDocuments()
+
+            for doc in snapshot.documents {
+                let data = doc.data()
+                let scoreID = data["id"] as? String ?? doc.documentID
+                let scoreMemberID = data["memberID"] as? String ?? ""
+
+                let descriptor = FetchDescriptor<DailyScore>(
+                    predicate: #Predicate { $0.id == scoreID }
+                )
+                if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { continue }
+
+                let score = DailyScore(
+                    memberID: scoreMemberID,
+                    memberName: data["memberName"] as? String ?? "",
+                    date: Date(timeIntervalSince1970: data["date"] as? Double ?? 0),
+                    positivePoints: data["positivePoints"] as? Double ?? 0,
+                    negativePoints: data["negativePoints"] as? Double ?? 0,
+                    bonusPoints: data["bonusPoints"] as? Double ?? 0,
+                    streakMultiplier: data["streakMultiplier"] as? Double ?? 1.0,
+                    streakDay: data["streakDay"] as? Int ?? 0
+                )
+                score.id = scoreID
+                score.syncedToFirebase = true
+                modelContext.insert(score)
+            }
+            try? modelContext.save()
+        } catch {
+            print("Failed to fetch remote daily scores: \(error)")
+        }
+    }
+
     func fetchFamilyMembers(familyGroupID: String) async -> [[String: Any]] {
         do {
             let snapshot = try await db.collection(AppConstants.FirestoreCollections.members)

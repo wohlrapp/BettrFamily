@@ -272,6 +272,7 @@ struct SetupView: View {
 
     private func finishSetup() {
         UserDefaults.shared.set(true, forKey: AppConstants.UserDefaultsKeys.onboardingComplete)
+        authService.onboardingComplete = true
         HeartbeatService.shared.startHeartbeat()
         HeartbeatService.shared.scheduleBackgroundTask()
 

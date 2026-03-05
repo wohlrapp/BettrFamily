@@ -20,25 +20,8 @@ struct BettrFamilyApp: App {
     @StateObject private var calendarService = CalendarService()
 
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            UsageRecord.self,
-            DomainRecord.self,
-            ComplianceEvent.self,
-            FamilyMember.self,
-            ActivityRecord.self,
-            DailyScore.self,
-            StreakRecord.self,
-            LocationSnapshot.self,
-            ProximityEvent.self,
-            RaveEvent.self,
-            Badge.self
-        ])
-        let config = ModelConfiguration(
-            schema: schema,
-            groupContainer: .identifier(AppConstants.appGroupID)
-        )
         do {
-            return try ModelContainer(for: schema, configurations: [config])
+            return try SharedModelContainer.create()
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }
@@ -67,18 +50,33 @@ struct BettrFamilyApp: App {
 
 struct RootView: View {
     @EnvironmentObject var authService: AuthService
+    @State private var showSplash = true
 
     var body: some View {
-        Group {
-            if authService.isAuthenticated {
-                if UserDefaults.shared.bool(forKey: AppConstants.UserDefaultsKeys.onboardingComplete) {
-                    MainTabView()
+        ZStack {
+            Group {
+                if authService.isAuthenticated {
+                    if authService.onboardingComplete {
+                        MainTabView()
+                    } else {
+                        SetupView()
+                    }
                 } else {
-                    SetupView()
+                    LoginView()
                 }
-            } else {
-                LoginView()
             }
+            .opacity(showSplash ? 0 : 1)
+
+            if showSplash {
+                LaunchScreenView()
+                    .transition(.opacity)
+                    .ignoresSafeArea()
+            }
+        }
+        .animation(.easeOut(duration: 0.5), value: showSplash)
+        .task {
+            try? await Task.sleep(for: .seconds(1.5))
+            showSplash = false
         }
     }
 }

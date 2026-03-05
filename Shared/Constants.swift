@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 enum AppConstants {
     static let appGroupID = "group.com.bettrfamily.shared"
@@ -40,5 +41,31 @@ enum AppConstants {
 extension UserDefaults {
     static var shared: UserDefaults {
         UserDefaults(suiteName: AppConstants.appGroupID) ?? .standard
+    }
+}
+
+/// Shared schema and ModelContainer factory — all targets MUST use the same schema
+/// to avoid SQLite corruption when sharing the App Group database.
+enum SharedModelContainer {
+    static let schema = Schema([
+        UsageRecord.self,
+        DomainRecord.self,
+        ComplianceEvent.self,
+        FamilyMember.self,
+        ActivityRecord.self,
+        DailyScore.self,
+        StreakRecord.self,
+        LocationSnapshot.self,
+        ProximityEvent.self,
+        RaveEvent.self,
+        Badge.self
+    ])
+
+    static func create() throws -> ModelContainer {
+        let config = ModelConfiguration(
+            schema: schema,
+            groupContainer: .identifier(AppConstants.appGroupID)
+        )
+        return try ModelContainer(for: schema, configurations: [config])
     }
 }

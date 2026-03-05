@@ -7,49 +7,56 @@ struct ActivityBreakdownView: View {
     @Environment(\.dismiss) private var dismiss
 
     @Query(sort: \ActivityRecord.points, order: .reverse) private var allRecords: [ActivityRecord]
+    @Query private var familyMembers: [FamilyMember]
     @State private var showManualActivity = false
 
     private var todayRecords: [ActivityRecord] {
-        guard let memberID = authService.memberID else { return [] }
         let startOfDay = Calendar.current.startOfDay(for: Date())
-        return allRecords.filter { $0.memberID == memberID && $0.date == startOfDay }
+        return allRecords.filter { $0.date == startOfDay }
     }
 
-    private var positiveRecords: [ActivityRecord] {
-        todayRecords.filter { $0.category == "positive" }
+    /// Group today's records by activityType, sorted by total absolute points
+    private var groupedActivities: [(type: String, records: [ActivityRecord])] {
+        let grouped = Dictionary(grouping: todayRecords) { $0.activityType }
+        return grouped.map { (type: $0.key, records: $0.value) }
+            .sorted { abs($0.records.reduce(0) { $0 + $1.points }) > abs($1.records.reduce(0) { $0 + $1.points }) }
     }
 
-    private var badRecords: [ActivityRecord] {
-        todayRecords.filter { $0.category == "bad" }
+    private var positiveGroups: [(type: String, records: [ActivityRecord])] {
+        groupedActivities.filter { $0.records.first?.category == "positive" }
     }
 
-    private var bonusRecords: [ActivityRecord] {
-        todayRecords.filter { $0.category == "bonus" }
+    private var badGroups: [(type: String, records: [ActivityRecord])] {
+        groupedActivities.filter { $0.records.first?.category == "bad" }
+    }
+
+    private var bonusGroups: [(type: String, records: [ActivityRecord])] {
+        groupedActivities.filter { $0.records.first?.category == "bonus" }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if !positiveRecords.isEmpty {
+                if !positiveGroups.isEmpty {
                     Section("Positiv") {
-                        ForEach(positiveRecords, id: \.id) { record in
-                            activityRow(record)
+                        ForEach(positiveGroups, id: \.type) { group in
+                            activityGroupRow(group.type, records: group.records)
                         }
                     }
                 }
 
-                if !badRecords.isEmpty {
+                if !badGroups.isEmpty {
                     Section("Negativ") {
-                        ForEach(badRecords, id: \.id) { record in
-                            activityRow(record)
+                        ForEach(badGroups, id: \.type) { group in
+                            activityGroupRow(group.type, records: group.records)
                         }
                     }
                 }
 
-                if !bonusRecords.isEmpty {
+                if !bonusGroups.isEmpty {
                     Section("Bonus") {
-                        ForEach(bonusRecords, id: \.id) { record in
-                            activityRow(record)
+                        ForEach(bonusGroups, id: \.type) { group in
+                            activityGroupRow(group.type, records: group.records)
                         }
                     }
                 }
@@ -81,27 +88,42 @@ struct ActivityBreakdownView: View {
         }
     }
 
-    private func activityRow(_ record: ActivityRecord) -> some View {
-        HStack {
-            Image(systemName: iconForActivity(record.activityType))
-                .foregroundStyle(colorForCategory(record.category))
-                .frame(width: 24)
+    // MARK: - Activity Group Row (with NavigationLink drill-down)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(displayName(for: record.activityType))
-                    .font(.subheadline)
-                Text(formatValue(record))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+    private func activityGroupRow(_ type: String, records: [ActivityRecord]) -> some View {
+        let totalPoints = records.reduce(0) { $0 + $1.points }
+        let memberCount = Set(records.map(\.memberID)).count
+
+        return NavigationLink {
+            ActivityDetailView(
+                activityType: type,
+                records: records,
+                familyMembers: familyMembers
+            )
+        } label: {
+            HStack {
+                Image(systemName: iconForActivity(type))
+                    .foregroundStyle(colorForCategory(records.first?.category ?? ""))
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayName(for: type))
+                        .font(.subheadline)
+                    Text("\(memberCount) Mitglied\(memberCount == 1 ? "" : "er")")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Text(totalPoints >= 0 ? "+\(Int(totalPoints))" : "\(Int(totalPoints))")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(totalPoints >= 0 ? .green : .red)
             }
-
-            Spacer()
-
-            Text(record.points >= 0 ? "+\(Int(record.points))" : "\(Int(record.points))")
-                .font(.subheadline.bold())
-                .foregroundStyle(record.points >= 0 ? .green : .red)
         }
     }
+
+    // MARK: - Helpers
 
     private func colorForCategory(_ category: String) -> Color {
         switch category {
@@ -136,11 +158,89 @@ struct ActivityBreakdownView: View {
         case "coLocation": return "location"
         case "sharedWorkout": return "figure.2.and.child.holdinghands"
         case "streaming": return "play.tv"
+        case "socialMediaDomain": return "globe"
+        case "streamingDomain": return "globe"
+        case "gamingDomain": return "globe"
         case "rave": return "star.fill"
         default:
             if type.hasPrefix("manual_") { return "hand.thumbsup.fill" }
             return "circle"
         }
+    }
+
+    private func displayName(for type: String) -> String {
+        if type.hasPrefix("manual_") {
+            return String(type.dropFirst("manual_".count))
+        }
+        let configs = ActivityPointConfig.defaults
+        return configs.first { $0.activityType == type }?.displayName ?? type
+    }
+}
+
+// MARK: - Activity Detail View (Drill-Down)
+
+struct ActivityDetailView: View {
+    let activityType: String
+    let records: [ActivityRecord]
+    let familyMembers: [FamilyMember]
+
+    private var sortedRecords: [ActivityRecord] {
+        records.sorted { abs($0.points) > abs($1.points) }
+    }
+
+    private var totalPoints: Double {
+        records.reduce(0) { $0 + $1.points }
+    }
+
+    var body: some View {
+        List {
+            // Summary
+            Section {
+                HStack {
+                    Text("Gesamt-Punkte")
+                    Spacer()
+                    Text(totalPoints >= 0 ? "+\(Int(totalPoints))" : "\(Int(totalPoints))")
+                        .font(.headline.bold())
+                        .foregroundStyle(totalPoints >= 0 ? .green : .red)
+                }
+                HStack {
+                    Text("Beitragende")
+                    Spacer()
+                    Text("\(Set(records.map(\.memberID)).count)")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Per-member breakdown
+            Section("Wer hat beigetragen") {
+                ForEach(sortedRecords, id: \.id) { record in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(memberName(for: record.memberID))
+                                .font(.subheadline.bold())
+                            HStack(spacing: 8) {
+                                Label(formatValue(record), systemImage: "chart.bar")
+                                Label(record.source, systemImage: "arrow.down.circle")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text(record.points >= 0 ? "+\(Int(record.points))" : "\(Int(record.points))")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(record.points >= 0 ? .green : .red)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+        }
+        .navigationTitle(displayName(for: activityType))
+    }
+
+    private func memberName(for memberID: String) -> String {
+        familyMembers.first(where: { $0.id == memberID })?.name ?? memberID
     }
 
     private func displayName(for type: String) -> String {

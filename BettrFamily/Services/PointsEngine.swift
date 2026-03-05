@@ -251,6 +251,130 @@ final class PointsEngine: ObservableObject {
         try? modelContext.save()
     }
 
+    // MARK: - Process Domain Records (VPN/DNS)
+
+    func processDomainRecords(
+        memberID: String,
+        memberName: String,
+        date: Date,
+        config: FamilyActivityConfig,
+        modelContext: ModelContext
+    ) {
+        let startOfDay = Calendar.current.startOfDay(for: date)
+        let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay)!
+
+        let descriptor = FetchDescriptor<DomainRecord>(
+            predicate: #Predicate {
+                $0.memberID == memberID && $0.timestamp >= startOfDay && $0.timestamp < endOfDay
+            }
+        )
+        guard let records = try? modelContext.fetch(descriptor), !records.isEmpty else { return }
+
+        // Count unique domain hits per category
+        let socialMediaHits = countDomainHits(records: records, domains: config.socialMediaDomains)
+        let streamingHits = countDomainHits(records: records, domains: config.streamingDomains)
+        let gamingHits = countDomainHits(records: records, domains: config.gamingDomains)
+
+        // Social media domains → negative points + compliance event
+        if socialMediaHits > 0,
+           let cfg = config.activities.first(where: { $0.activityType == "socialMediaDomain" && $0.isEnabled })
+            ?? config.activities.first(where: { $0.activityType == "socialMedia" && $0.isEnabled }) {
+            let points = Double(socialMediaHits) * cfg.pointsPerUnit
+            insertOrUpdateRecord(
+                memberID: memberID, date: startOfDay,
+                activityType: "socialMediaDomain", category: .bad,
+                rawValue: Double(socialMediaHits), unit: "count",
+                points: points, source: "dns",
+                modelContext: modelContext
+            )
+
+            // Create compliance event for social media domain access
+            createDomainComplianceEvent(
+                memberID: memberID,
+                memberName: memberName,
+                date: startOfDay,
+                records: records,
+                domains: config.socialMediaDomains,
+                modelContext: modelContext
+            )
+        }
+
+        // Streaming domains
+        if streamingHits > 0,
+           let cfg = config.activities.first(where: { $0.activityType == "streamingDomain" && $0.isEnabled })
+            ?? config.activities.first(where: { $0.activityType == "streaming" && $0.isEnabled }) {
+            let points = Double(streamingHits) * cfg.pointsPerUnit
+            insertOrUpdateRecord(
+                memberID: memberID, date: startOfDay,
+                activityType: "streamingDomain", category: .bad,
+                rawValue: Double(streamingHits), unit: "count",
+                points: points, source: "dns",
+                modelContext: modelContext
+            )
+        }
+
+        // Gaming domains
+        if gamingHits > 0,
+           let cfg = config.activities.first(where: { $0.activityType == "gamingDomain" && $0.isEnabled })
+            ?? config.activities.first(where: { $0.activityType == "gaming" && $0.isEnabled }) {
+            let points = Double(gamingHits) * cfg.pointsPerUnit
+            insertOrUpdateRecord(
+                memberID: memberID, date: startOfDay,
+                activityType: "gamingDomain", category: .bad,
+                rawValue: Double(gamingHits), unit: "count",
+                points: points, source: "dns",
+                modelContext: modelContext
+            )
+        }
+
+        try? modelContext.save()
+    }
+
+    private func countDomainHits(records: [DomainRecord], domains: [String]) -> Int {
+        let matchingDomains = Set(records.compactMap { record -> String? in
+            let domain = record.domain.lowercased()
+            return domains.first(where: { domain.hasSuffix($0) })
+        })
+        return records.filter { record in
+            let domain = record.domain.lowercased()
+            return domains.contains(where: { domain.hasSuffix($0) })
+        }.count
+    }
+
+    private func createDomainComplianceEvent(
+        memberID: String,
+        memberName: String,
+        date: Date,
+        records: [DomainRecord],
+        domains: [String],
+        modelContext: ModelContext
+    ) {
+        // Find which social media domains were accessed
+        let accessedDomains = Set(records.compactMap { record -> String? in
+            let domain = record.domain.lowercased()
+            return domains.first(where: { domain.hasSuffix($0) })
+        })
+
+        guard !accessedDomains.isEmpty else { return }
+
+        // Check if we already created a compliance event today for this
+        let eventType = ComplianceEventType.socialMediaUsed.rawValue
+        let descriptor = FetchDescriptor<ComplianceEvent>(
+            predicate: #Predicate {
+                $0.memberID == memberID && $0.eventType == eventType && $0.timestamp >= date
+            }
+        )
+        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { return }
+
+        let event = ComplianceEvent(
+            memberID: memberID,
+            memberName: memberName,
+            eventType: .socialMediaUsed,
+            details: "Social Media im Browser: \(accessedDomains.sorted().joined(separator: ", "))"
+        )
+        modelContext.insert(event)
+    }
+
     // MARK: - Helpers
 
     private func getOrCreateStreak(memberID: String, modelContext: ModelContext) -> StreakRecord {

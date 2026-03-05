@@ -5,12 +5,7 @@ import Foundation
 class PacketTunnelProvider: NEPacketTunnelProvider {
 
     private var modelContainer: ModelContainer? {
-        try? ModelContainer(
-            for: DomainRecord.self, ComplianceEvent.self,
-            configurations: ModelConfiguration(
-                groupContainer: .identifier(AppConstants.appGroupID)
-            )
-        )
+        try? SharedModelContainer.create()
     }
 
     private let dnsServerAddress = "1.1.1.1" // Cloudflare DNS as upstream

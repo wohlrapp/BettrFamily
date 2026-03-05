@@ -16,12 +16,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     ]
 
     private var modelContainer: ModelContainer? {
-        try? ModelContainer(
-            for: UsageRecord.self, ComplianceEvent.self, ActivityRecord.self,
-            configurations: ModelConfiguration(
-                groupContainer: .identifier(AppConstants.appGroupID)
-            )
-        )
+        try? SharedModelContainer.create()
     }
 
     override func intervalDidStart(for activity: DeviceActivityName) {

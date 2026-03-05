@@ -44,12 +44,7 @@ struct DeviceActivityReportExtension: DeviceActivityReportScene {
     }
 
     private func saveToSharedContainer(usages: [AppUsageInfo]) async {
-        guard let container = try? ModelContainer(
-            for: UsageRecord.self, ComplianceEvent.self,
-            configurations: ModelConfiguration(
-                groupContainer: .identifier(AppConstants.appGroupID)
-            )
-        ) else { return }
+        guard let container = try? SharedModelContainer.create() else { return }
 
         let context = ModelContext(container)
         let memberID = UserDefaults.shared.string(forKey: AppConstants.UserDefaultsKeys.memberID) ?? "unknown"

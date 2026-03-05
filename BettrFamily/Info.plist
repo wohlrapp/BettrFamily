@@ -28,9 +28,7 @@
 	<key>UILaunchScreen</key>
 	<dict>
 		<key>UIColorName</key>
-		<string>AccentColor</string>
-		<key>UIImageName</key>
-		<string>LaunchIcon</string>
+		<string></string>
 	</dict>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>

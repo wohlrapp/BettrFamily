@@ -3,16 +3,8 @@ import SwiftData
 import Charts
 
 struct WeeklyChartView: View {
-    @EnvironmentObject var authService: AuthService
     @Query(sort: \DailyScore.date) private var allScores: [DailyScore]
-
-    private var myWeekScores: [DailyScore] {
-        guard let memberID = authService.memberID else { return [] }
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-        guard let weekAgo = calendar.date(byAdding: .day, value: -6, to: today) else { return [] }
-        return allScores.filter { $0.memberID == memberID && $0.date >= weekAgo }
-    }
+    @Query private var familyMembers: [FamilyMember]
 
     private var weekDays: [Date] {
         let calendar = Calendar.current
@@ -20,29 +12,38 @@ struct WeeklyChartView: View {
         return (0..<7).compactMap { calendar.date(byAdding: .day, value: -6 + $0, to: today) }
     }
 
+    private func familyScoreForDay(_ day: Date) -> Double {
+        allScores.filter { $0.date == day }.reduce(0) { $0 + $1.finalScore }
+    }
+
     private var weekTotal: Double {
-        myWeekScores.reduce(0) { $0 + $1.finalScore }
+        weekDays.reduce(0) { $0 + familyScoreForDay($1) }
     }
 
     private var averageScore: Double {
-        guard !myWeekScores.isEmpty else { return 0 }
-        return weekTotal / Double(myWeekScores.count)
+        let daysWithData = weekDays.filter { day in allScores.contains { $0.date == day } }.count
+        guard daysWithData > 0 else { return 0 }
+        return weekTotal / Double(daysWithData)
     }
 
     private var positiveDays: Int {
-        myWeekScores.filter { $0.isPositiveDay }.count
+        weekDays.filter { familyScoreForDay($0) > 0 }.count
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Letzte 7 Tage")
-                .font(.headline)
+            HStack {
+                Image(systemName: "heart.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                Text("Family Health — Letzte 7 Tage")
+                    .font(.headline)
+            }
 
             // Chart
             Chart {
                 ForEach(weekDays, id: \.self) { day in
-                    let score = myWeekScores.first { $0.date == day }
-                    let value = score?.finalScore ?? 0
+                    let value = familyScoreForDay(day)
 
                     BarMark(
                         x: .value("Tag", day, unit: .day),
@@ -53,7 +54,7 @@ struct WeeklyChartView: View {
                 }
             }
             .chartXAxis {
-                AxisMarks(values: .stride(by: .day)) { value in
+                AxisMarks(values: .stride(by: .day)) { _ in
                     AxisValueLabel(format: .dateTime.weekday(.abbreviated))
                 }
             }

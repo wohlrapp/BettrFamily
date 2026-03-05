@@ -303,7 +303,7 @@ struct SettingsView: View {
                 let preset = reasons.randomElement()!
                 let rave = RaveEvent(
                     fromMemberID: "mock_partner",
-                    fromMemberName: "Partner",
+                    fromMemberName: "Lotte",
                     toMemberID: memberID,
                     toMemberName: memberName,
                     reason: preset.reason,
@@ -349,20 +349,20 @@ struct SettingsView: View {
         if partnerExists, let familyGroupID = authService.familyGroupID {
             let partner = FamilyMember(
                 id: "mock_partner",
-                name: "Partner",
+                name: "Lotte",
                 email: "partner@example.com",
                 familyGroupID: familyGroupID,
-                deviceName: "iPhone von Partner"
+                deviceName: "iPhone von Lotte"
             )
             partner.lastHeartbeat = Date().addingTimeInterval(-600)
             modelContext.insert(partner)
 
-            // Partner scores for past days
+            // Lotte scores for past days
             for dayOffset in (0...6).reversed() {
                 let date = calendar.date(byAdding: .day, value: -dayOffset, to: Date())!
                 modelContext.insert(DailyScore(
                     memberID: "mock_partner",
-                    memberName: "Partner",
+                    memberName: "Lotte",
                     date: date,
                     positivePoints: Double.random(in: 8...20),
                     negativePoints: Double.random(in: -6...0),
