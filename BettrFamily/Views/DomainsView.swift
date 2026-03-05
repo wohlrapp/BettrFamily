@@ -8,23 +8,29 @@ struct DomainsView: View {
 
     @Query(sort: \DomainRecord.timestamp, order: .reverse)
     private var localRecords: [DomainRecord]
+    @Query private var familyMembers: [FamilyMember]
 
     @State private var searchText = ""
+    @State private var selectedMemberID: String? = nil
 
     var body: some View {
         NavigationStack {
-            List {
-                if filteredRecords.isEmpty {
-                    ContentUnavailableView(
-                        "Keine Domains",
-                        systemImage: "globe",
-                        description: Text("Aktiviere das VPN, um Domain-Zugriffe zu erfassen.")
-                    )
-                } else {
-                    ForEach(groupedByDate, id: \.date) { group in
-                        Section(group.dateString) {
-                            ForEach(group.records, id: \.id) { record in
-                                DomainRow(record: record)
+            VStack(spacing: 0) {
+                memberFilter
+
+                List {
+                    if filteredRecords.isEmpty {
+                        ContentUnavailableView(
+                            "Keine Domains",
+                            systemImage: "globe",
+                            description: Text("Aktiviere das VPN, um Domain-Zugriffe zu erfassen.")
+                        )
+                    } else {
+                        ForEach(groupedByDate, id: \.date) { group in
+                            Section(group.dateString) {
+                                ForEach(group.records, id: \.id) { record in
+                                    DomainRow(record: record, memberName: memberName(for: record.memberID))
+                                }
                             }
                         }
                     }
@@ -43,9 +49,33 @@ struct DomainsView: View {
         }
     }
 
+    private var memberFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterChip(title: "Alle", isSelected: selectedMemberID == nil) {
+                    selectedMemberID = nil
+                }
+                ForEach(familyMembers, id: \.id) { member in
+                    FilterChip(title: member.name, isSelected: selectedMemberID == member.id) {
+                        selectedMemberID = member.id
+                    }
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+        }
+        .background(.ultraThinMaterial)
+    }
+
     private var filteredRecords: [DomainRecord] {
-        if searchText.isEmpty { return localRecords }
-        return localRecords.filter { $0.domain.localizedCaseInsensitiveContains(searchText) }
+        var records = localRecords
+        if let memberID = selectedMemberID {
+            records = records.filter { $0.memberID == memberID }
+        }
+        if !searchText.isEmpty {
+            records = records.filter { $0.domain.localizedCaseInsensitiveContains(searchText) }
+        }
+        return records
     }
 
     private var groupedByDate: [DomainGroup] {
@@ -55,6 +85,10 @@ struct DomainsView: View {
         return grouped.map { date, records in
             DomainGroup(date: date, records: records)
         }.sorted { $0.date > $1.date }
+    }
+
+    private func memberName(for memberID: String) -> String {
+        familyMembers.first(where: { $0.id == memberID })?.name ?? memberID
     }
 }
 
@@ -69,20 +103,44 @@ struct DomainGroup {
 
 struct DomainRow: View {
     let record: DomainRecord
+    let memberName: String
 
     var body: some View {
         HStack {
             VStack(alignment: .leading) {
                 Text(record.domain)
                     .font(.subheadline)
-                Text(record.queryType)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(memberName)
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                    Text(record.queryType)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
             Text(record.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+}
+
+struct FilterChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(isSelected ? Color.accentColor : Color(.systemGray5))
+                .foregroundStyle(isSelected ? .white : .primary)
+                .clipShape(Capsule())
         }
     }
 }

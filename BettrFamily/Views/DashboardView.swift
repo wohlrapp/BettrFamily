@@ -7,15 +7,19 @@ struct DashboardView: View {
     @EnvironmentObject var syncService: FirebaseSyncService
     @Environment(\.modelContext) private var modelContext
 
+    @Query private var familyMembers: [FamilyMember]
+
     @State private var selectedDate = Date()
     @State private var familyUsage: [[String: Any]] = []
     @State private var isLoading = false
+    @State private var selectedMemberID: String? = nil
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
                     statusCards
+                    memberFilter
                     datePicker
                     usageSection
                 }
@@ -24,6 +28,23 @@ struct DashboardView: View {
             .navigationTitle("Dashboard")
             .refreshable { await loadData() }
             .task { await loadData() }
+        }
+    }
+
+    // MARK: - Member Filter
+
+    private var memberFilter: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                FilterChip(title: "Alle", isSelected: selectedMemberID == nil) {
+                    selectedMemberID = nil
+                }
+                ForEach(familyMembers, id: \.id) { member in
+                    FilterChip(title: member.name, isSelected: selectedMemberID == member.id) {
+                        selectedMemberID = member.id
+                    }
+                }
+            }
         }
     }
 
@@ -39,9 +60,9 @@ struct DashboardView: View {
             )
 
             StatusCard(
-                title: "Mitglied",
-                value: authService.memberName ?? "—",
-                icon: "person.fill",
+                title: "Mitglieder",
+                value: "\(familyMembers.count)",
+                icon: "person.2.fill",
                 color: .blue
             )
 
@@ -79,14 +100,14 @@ struct DashboardView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity)
                     .padding()
-            } else if familyUsage.isEmpty {
+            } else if filteredGroups.isEmpty {
                 ContentUnavailableView(
                     "Keine Daten",
                     systemImage: "chart.bar",
                     description: Text("Fuer diesen Tag liegen keine Nutzungsdaten vor.")
                 )
             } else {
-                ForEach(groupedByMember, id: \.memberID) { group in
+                ForEach(filteredGroups, id: \.memberID) { group in
                     MemberUsageCard(
                         memberName: group.memberName,
                         records: group.records
@@ -119,9 +140,16 @@ struct DashboardView: View {
     private var groupedByMember: [MemberUsageGroup] {
         let grouped = Dictionary(grouping: familyUsage) { $0["memberID"] as? String ?? "" }
         return grouped.map { memberID, records in
-            let memberName = records.first?["appName"] as? String ?? memberID
+            let memberName = familyMembers.first(where: { $0.id == memberID })?.name ?? memberID
             return MemberUsageGroup(memberID: memberID, memberName: memberName, records: records)
         }.sorted { $0.memberName < $1.memberName }
+    }
+
+    private var filteredGroups: [MemberUsageGroup] {
+        if let memberID = selectedMemberID {
+            return groupedByMember.filter { $0.memberID == memberID }
+        }
+        return groupedByMember
     }
 }
 

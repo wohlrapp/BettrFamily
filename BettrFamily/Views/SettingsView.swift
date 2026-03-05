@@ -44,62 +44,54 @@ struct SettingsView: View {
 
                 // Monitoring
                 Section("Monitoring") {
-                    HStack {
-                        Text("Screen Time")
-                        Spacer()
-                        Text(screenTimeService.isAuthorized ? "Aktiv" : "Inaktiv")
-                            .foregroundStyle(screenTimeService.isAuthorized ? .green : .red)
-                    }
+                    Toggle("Screen Time", isOn: Binding(
+                        get: { screenTimeService.isAuthorized },
+                        set: { newValue in
+                            if newValue {
+                                Task { await screenTimeService.requestAuthorization() }
+                            }
+                        }
+                    ))
+                    .tint(.green)
 
                     Button("Ueberwachte Apps aendern") {
                         showAppPicker = true
                     }
 
-                    HStack {
-                        Text("VPN (DNS-Monitoring)")
-                        Spacer()
-                        Text(vpnMonitor.isVPNActive ? "Aktiv" : "Inaktiv")
-                            .foregroundStyle(vpnMonitor.isVPNActive ? .green : .red)
-                    }
-
-                    if vpnMonitor.isVPNActive {
-                        Button("VPN deaktivieren", role: .destructive) {
-                            vpnMonitor.stopVPN()
+                    Toggle("VPN (DNS-Monitoring)", isOn: Binding(
+                        get: { vpnMonitor.isVPNActive },
+                        set: { newValue in
+                            if newValue {
+                                vpnMonitor.startVPN()
+                            } else {
+                                vpnMonitor.stopVPN()
+                            }
                         }
-                    } else {
-                        Button("VPN aktivieren") {
-                            vpnMonitor.startVPN()
-                        }
-                    }
+                    ))
+                    .tint(.green)
                 }
 
                 // Punkte-System
                 Section("Punkte-System") {
-                    HStack {
-                        Text("HealthKit")
-                        Spacer()
-                        Text(healthKitService.isAuthorized ? "Aktiv" : "Inaktiv")
-                            .foregroundStyle(healthKitService.isAuthorized ? .green : .red)
-                    }
-
-                    if !healthKitService.isAuthorized {
-                        Button("HealthKit aktivieren") {
-                            Task { await healthKitService.requestAuthorization() }
+                    Toggle("HealthKit", isOn: Binding(
+                        get: { healthKitService.isAuthorized },
+                        set: { newValue in
+                            if newValue {
+                                Task { await healthKitService.requestAuthorization() }
+                            }
                         }
-                    }
+                    ))
+                    .tint(.green)
 
-                    HStack {
-                        Text("Standort")
-                        Spacer()
-                        Text(locationService.isLocationAuthorized ? "Aktiv" : "Inaktiv")
-                            .foregroundStyle(locationService.isLocationAuthorized ? .green : .red)
-                    }
-
-                    if !locationService.isLocationAuthorized {
-                        Button("Standort aktivieren") {
-                            locationService.requestLocationAuthorization()
+                    Toggle("Standort", isOn: Binding(
+                        get: { locationService.isLocationAuthorized },
+                        set: { newValue in
+                            if newValue {
+                                locationService.requestLocationAuthorization()
+                            }
                         }
-                    }
+                    ))
+                    .tint(.green)
 
                     Button("Aktivitaeten konfigurieren") {
                         showActivityConfig = true

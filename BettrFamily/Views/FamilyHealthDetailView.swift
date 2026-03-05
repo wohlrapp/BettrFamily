@@ -192,25 +192,35 @@ struct FamilyHealthDetailView: View {
                 .font(.headline)
 
             ForEach(Array(topTypes), id: \.type) { activity in
-                HStack {
-                    Image(systemName: iconForActivity(activity.type))
-                        .foregroundStyle(activity.total >= 0 ? .green : .red)
-                        .frame(width: 24)
+                let records = grouped[activity.type] ?? []
+                NavigationLink {
+                    ActivityDetailView(
+                        activityType: activity.type,
+                        records: records,
+                        familyMembers: familyMembers
+                    )
+                } label: {
+                    HStack {
+                        Image(systemName: iconForActivity(activity.type))
+                            .foregroundStyle(activity.total >= 0 ? .green : .red)
+                            .frame(width: 24)
 
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(displayName(for: activity.type))
-                            .font(.subheadline)
-                        Text("\(activity.count) Eintr\(activity.count == 1 ? "ag" : "aege")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(displayName(for: activity.type))
+                                .font(.subheadline)
+                            Text("\(activity.count) Eintr\(activity.count == 1 ? "ag" : "aege")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text(activity.total >= 0 ? "+\(Int(activity.total))" : "\(Int(activity.total))")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(activity.total >= 0 ? .green : .red)
                     }
-
-                    Spacer()
-
-                    Text(activity.total >= 0 ? "+\(Int(activity.total))" : "\(Int(activity.total))")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(activity.total >= 0 ? .green : .red)
                 }
+                .foregroundStyle(.primary)
             }
 
             if topTypes.isEmpty {

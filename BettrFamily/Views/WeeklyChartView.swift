@@ -2,9 +2,17 @@ import SwiftUI
 import SwiftData
 import Charts
 
+struct IdentifiableDate: Identifiable {
+    let date: Date
+    var id: Date { date }
+}
+
 struct WeeklyChartView: View {
     @Query(sort: \DailyScore.date) private var allScores: [DailyScore]
     @Query private var familyMembers: [FamilyMember]
+
+    @State private var selectedDay: Date?
+    @State private var sheetDay: IdentifiableDate?
 
     private var weekDays: [Date] {
         let calendar = Calendar.current
@@ -61,6 +69,7 @@ struct WeeklyChartView: View {
             .chartYAxis {
                 AxisMarks(position: .leading)
             }
+            .chartXSelection(value: $selectedDay)
             .frame(height: 160)
 
             // Summary stats
@@ -94,5 +103,17 @@ struct WeeklyChartView: View {
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal)
+        .onChange(of: selectedDay) { _, newDay in
+            if let newDay {
+                let snapped = Calendar.current.startOfDay(for: newDay)
+                if weekDays.contains(snapped) {
+                    sheetDay = IdentifiableDate(date: snapped)
+                }
+                selectedDay = nil
+            }
+        }
+        .sheet(item: $sheetDay) { item in
+            DayDetailView(date: item.date)
+        }
     }
 }

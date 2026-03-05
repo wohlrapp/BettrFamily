@@ -22,6 +22,7 @@ struct ScoreTabView: View {
     @State private var showBadges = false
     @State private var showHealthDetail = false
     @State private var earnedBadge: BadgeDefinition?
+    @State private var selectedMember: FamilyMember?
 
     private var todayScores: [DailyScore] {
         let startOfDay = Calendar.current.startOfDay(for: Date())
@@ -162,6 +163,13 @@ struct ScoreTabView: View {
                     todayActivityRecords: todayActivityRecords
                 )
             }
+            .sheet(item: $selectedMember) { member in
+                MemberDayDetailView(
+                    memberID: member.id,
+                    memberName: member.name,
+                    date: Date()
+                )
+            }
             .task {
                 await refreshScore()
             }
@@ -290,7 +298,10 @@ struct ScoreTabView: View {
             let sorted = familyMembers.sorted { memberScore($0.id) > memberScore($1.id) }
 
             ForEach(sorted, id: \.id) { member in
-                contributorRow(member)
+                Button { selectedMember = member } label: {
+                    contributorRow(member)
+                }
+                .buttonStyle(.plain)
             }
 
             if familyMembers.isEmpty {
