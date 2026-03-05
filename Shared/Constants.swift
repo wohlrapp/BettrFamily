@@ -21,6 +21,7 @@ enum AppConstants {
         static let proximityEvents = "proximityEvents"
         static let activityConfig = "activityConfig"
         static let raveEvents = "raveEvents"
+        static let badges = "badges"
     }
 
     enum UserDefaultsKeys {

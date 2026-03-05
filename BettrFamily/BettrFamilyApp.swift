@@ -16,6 +16,7 @@ struct BettrFamilyApp: App {
     @StateObject private var pointsEngine = PointsEngine()
     @StateObject private var locationService = LocationService()
     @StateObject private var activityConfigService = ActivityConfigService()
+    @StateObject private var badgeEngine = BadgeEngine()
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -28,7 +29,8 @@ struct BettrFamilyApp: App {
             StreakRecord.self,
             LocationSnapshot.self,
             ProximityEvent.self,
-            RaveEvent.self
+            RaveEvent.self,
+            Badge.self
         ])
         let config = ModelConfiguration(
             schema: schema,
@@ -53,6 +55,7 @@ struct BettrFamilyApp: App {
                 .environmentObject(pointsEngine)
                 .environmentObject(locationService)
                 .environmentObject(activityConfigService)
+                .environmentObject(badgeEngine)
         }
         .modelContainer(sharedModelContainer)
     }

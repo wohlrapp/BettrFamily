@@ -86,5 +86,6 @@ struct MainTabView: View {
         await syncService.syncStreakRecords(from: modelContext, familyGroupID: familyGroupID)
         await syncService.syncRaveEvents(from: modelContext, familyGroupID: familyGroupID)
         await syncService.syncLocationSnapshots(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncBadges(from: modelContext, familyGroupID: familyGroupID)
     }
 }

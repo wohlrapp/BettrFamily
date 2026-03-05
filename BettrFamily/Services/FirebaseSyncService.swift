@@ -198,6 +198,30 @@ final class FirebaseSyncService: ObservableObject {
         try? modelContext.save()
     }
 
+    func syncBadges(from modelContext: ModelContext, familyGroupID: String) async {
+        let descriptor = FetchDescriptor<Badge>(
+            predicate: #Predicate { !$0.syncedToFirebase }
+        )
+
+        guard let records = try? modelContext.fetch(descriptor) else { return }
+
+        for record in records {
+            do {
+                try await db.collection(AppConstants.FirestoreCollections.families)
+                    .document(familyGroupID)
+                    .collection(AppConstants.FirestoreCollections.badges)
+                    .document(record.id)
+                    .setData(record.firestoreData)
+
+                record.syncedToFirebase = true
+            } catch {
+                print("Failed to sync badge \(record.id): \(error)")
+            }
+        }
+
+        try? modelContext.save()
+    }
+
     func fetchFamilyDailyScores(familyGroupID: String, date: Date) async -> [[String: Any]] {
         let startOfDay = Calendar.current.startOfDay(for: date)
         let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: startOfDay)!

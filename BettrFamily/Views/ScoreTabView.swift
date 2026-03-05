@@ -7,13 +7,17 @@ struct ScoreTabView: View {
     @EnvironmentObject var healthKitService: HealthKitService
     @EnvironmentObject var activityConfigService: ActivityConfigService
     @EnvironmentObject var syncService: FirebaseSyncService
+    @EnvironmentObject var badgeEngine: BadgeEngine
     @Environment(\.modelContext) private var modelContext
 
     @Query(sort: \DailyScore.finalScore, order: .reverse) private var allScores: [DailyScore]
     @Query(sort: \RaveEvent.timestamp, order: .reverse) private var recentRaves: [RaveEvent]
+    @Query private var allBadges: [Badge]
 
     @State private var showActivityBreakdown = false
     @State private var showRaveSheet = false
+    @State private var showBadges = false
+    @State private var earnedBadge: BadgeDefinition?
 
     private var todayScores: [DailyScore] {
         let startOfDay = Calendar.current.startOfDay(for: Date())
@@ -25,63 +29,105 @@ struct ScoreTabView: View {
         return todayScores.first { $0.memberID == memberID }
     }
 
+    private var myBadgeCount: Int {
+        guard let memberID = authService.memberID else { return 0 }
+        return allBadges.filter { $0.memberID == memberID }.count
+    }
+
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Today's Score Card
-                    scoreCard
+            ZStack {
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Today's Score Card
+                        scoreCard
 
-                    // Streak Banner
-                    if let streak = pointsEngine.currentStreak, streak.currentStreak > 0 {
-                        streakBanner(streak)
-                    }
-
-                    // RAVE Button
-                    Button {
-                        showRaveSheet = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "star.circle.fill")
-                            Text("RAVE senden")
+                        // Streak Banner
+                        if let streak = pointsEngine.currentStreak, streak.currentStreak > 0 {
+                            streakBanner(streak)
                         }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                    .padding(.horizontal)
 
-                    // Recent RAVEs
-                    if !todayRaves.isEmpty {
-                        recentRavesSection
-                    }
+                        // Action buttons row
+                        HStack(spacing: 12) {
+                            Button {
+                                showRaveSheet = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "star.circle.fill")
+                                    Text("RAVE")
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.orange)
 
-                    // Weekly Chart
-                    WeeklyChartView()
-
-                    // Family Leaderboard
-                    if todayScores.count > 1 {
-                        leaderboardSection
-                    }
-
-                    // Activity Breakdown Link
-                    Button {
-                        showActivityBreakdown = true
-                    } label: {
-                        HStack {
-                            Image(systemName: "list.bullet")
-                            Text("Aktivitaeten-Details")
-                            Spacer()
-                            Image(systemName: "chevron.right")
+                            Button {
+                                showBadges = true
+                            } label: {
+                                HStack {
+                                    Image(systemName: "medal.fill")
+                                    Text("Badges")
+                                    if myBadgeCount > 0 {
+                                        Text("\(myBadgeCount)")
+                                            .font(.caption2.bold())
+                                            .padding(.horizontal, 6)
+                                            .padding(.vertical, 2)
+                                            .background(.white.opacity(0.3))
+                                            .clipShape(Capsule())
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(.purple)
                         }
-                        .padding()
-                        .background(.ultraThinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .padding(.horizontal)
+
+                        // Recent RAVEs
+                        if !todayRaves.isEmpty {
+                            recentRavesSection
+                        }
+
+                        // Weekly Chart
+                        WeeklyChartView()
+
+                        // Family Leaderboard
+                        if todayScores.count > 1 {
+                            leaderboardSection
+                        }
+
+                        // Activity Breakdown Link
+                        Button {
+                            showActivityBreakdown = true
+                        } label: {
+                            HStack {
+                                Image(systemName: "list.bullet")
+                                Text("Aktivitaeten-Details")
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                            }
+                            .padding()
+                            .background(.ultraThinMaterial)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .padding(.horizontal)
                     }
-                    .padding(.horizontal)
+                    .padding(.vertical)
                 }
-                .padding(.vertical)
+
+                // Badge earned overlay
+                if let badge = earnedBadge {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+                        .onTapGesture { earnedBadge = nil }
+
+                    BadgeEarnedToast(badge: badge) {
+                        earnedBadge = nil
+                    }
+                    .transition(.scale.combined(with: .opacity))
+                }
             }
+            .animation(.spring, value: earnedBadge != nil)
             .navigationTitle("Punkte")
             .sheet(isPresented: $showActivityBreakdown) {
                 ActivityBreakdownView()
@@ -89,11 +135,20 @@ struct ScoreTabView: View {
             .sheet(isPresented: $showRaveSheet) {
                 RaveView()
             }
+            .sheet(isPresented: $showBadges) {
+                BadgesView()
+            }
             .task {
                 await refreshScore()
             }
             .refreshable {
                 await refreshScore()
+            }
+            .onChange(of: badgeEngine.newBadge?.id) { _, newID in
+                if let newID, let badge = BadgeDefinition.find(newID) {
+                    earnedBadge = badge
+                    badgeEngine.newBadge = nil
+                }
             }
         }
     }
@@ -276,7 +331,6 @@ struct ScoreTabView: View {
 
         // Insert HealthKit records
         for record in hkRecords {
-            // Check if already exists
             let activityType = record.activityType
             let date = record.date
             let descriptor = FetchDescriptor<ActivityRecord>(
@@ -320,11 +374,15 @@ struct ScoreTabView: View {
         // Update streak
         pointsEngine.updateStreak(for: Date(), memberID: memberID, modelContext: modelContext)
 
+        // Check badges
+        badgeEngine.checkAndAwardBadges(memberID: memberID, modelContext: modelContext)
+
         // Sync to Firebase
         if let familyGroupID = authService.familyGroupID {
             await syncService.syncActivityRecords(from: modelContext, familyGroupID: familyGroupID)
             await syncService.syncDailyScores(from: modelContext, familyGroupID: familyGroupID)
             await syncService.syncStreakRecords(from: modelContext, familyGroupID: familyGroupID)
+            await syncService.syncBadges(from: modelContext, familyGroupID: familyGroupID)
         }
     }
 }
