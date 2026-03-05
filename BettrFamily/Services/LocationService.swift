@@ -1,0 +1,184 @@
+import Foundation
+import CoreLocation
+import CoreBluetooth
+import SwiftData
+
+@MainActor
+final class LocationService: NSObject, ObservableObject {
+    @Published var isLocationAuthorized = false
+    @Published var isBluetoothAvailable = false
+    @Published var nearbyMembers: [String] = []
+    @Published var errorMessage: String?
+
+    private var locationManager: CLLocationManager?
+    private var peripheralManager: CBPeripheralManager?
+    private var centralManager: CBCentralManager?
+
+    private var memberID: String?
+    private var familyGroupID: String?
+    private var modelContext: ModelContext?
+
+    // Family-specific BLE service UUID derived from familyGroupID
+    private var familyServiceUUID: CBUUID? {
+        guard let familyGroupID else { return nil }
+        // Create a deterministic UUID from familyGroupID
+        let hash = familyGroupID.data(using: .utf8)!
+        let uuidString = UUID(uuid: hash.withUnsafeBytes { ptr in
+            var uuid = uuid_t()
+            withUnsafeMutableBytes(of: &uuid) { dest in
+                let count = min(dest.count, ptr.count)
+                dest.copyBytes(from: UnsafeRawBufferPointer(rebasing: ptr.prefix(count)))
+            }
+            return uuid
+        }).uuidString
+        return CBUUID(string: uuidString)
+    }
+
+    private let memberIDCharacteristicUUID = CBUUID(string: "2A00")
+
+    // MARK: - Setup
+
+    func configure(memberID: String, familyGroupID: String, modelContext: ModelContext) {
+        self.memberID = memberID
+        self.familyGroupID = familyGroupID
+        self.modelContext = modelContext
+    }
+
+    // MARK: - Location
+
+    func requestLocationAuthorization() {
+        let manager = CLLocationManager()
+        manager.delegate = self
+        manager.allowsBackgroundLocationUpdates = false
+        self.locationManager = manager
+        manager.requestWhenInUseAuthorization()
+    }
+
+    func startSignificantLocationMonitoring() {
+        guard CLLocationManager.significantLocationChangeMonitoringAvailable() else {
+            errorMessage = "Standort-Monitoring nicht verfuegbar."
+            return
+        }
+        locationManager?.startMonitoringSignificantLocationChanges()
+        UserDefaults.shared.set(true, forKey: AppConstants.UserDefaultsKeys.locationAuthorized)
+    }
+
+    func stopLocationMonitoring() {
+        locationManager?.stopMonitoringSignificantLocationChanges()
+    }
+
+    // MARK: - Bluetooth
+
+    func startBluetoothProximity() {
+        peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
+        centralManager = CBCentralManager(delegate: self, queue: nil)
+    }
+
+    func stopBluetoothProximity() {
+        peripheralManager?.stopAdvertising()
+        centralManager?.stopScan()
+        peripheralManager = nil
+        centralManager = nil
+        nearbyMembers = []
+    }
+
+    // MARK: - Save Location
+
+    private func saveLocationSnapshot(latitude: Double, longitude: Double) {
+        guard let memberID, let modelContext else { return }
+
+        let snapshot = LocationSnapshot(
+            memberID: memberID,
+            latitude: latitude,
+            longitude: longitude
+        )
+        modelContext.insert(snapshot)
+        try? modelContext.save()
+    }
+}
+
+// MARK: - CLLocationManagerDelegate
+
+extension LocationService: CLLocationManagerDelegate {
+    nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        Task { @MainActor in
+            saveLocationSnapshot(latitude: location.coordinate.latitude, longitude: location.coordinate.longitude)
+        }
+    }
+
+    nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        Task { @MainActor in
+            switch manager.authorizationStatus {
+            case .authorizedWhenInUse, .authorizedAlways:
+                isLocationAuthorized = true
+            default:
+                isLocationAuthorized = false
+            }
+        }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        Task { @MainActor in
+            errorMessage = "Standort-Fehler: \(error.localizedDescription)"
+        }
+    }
+}
+
+// MARK: - CBPeripheralManagerDelegate
+
+extension LocationService: CBPeripheralManagerDelegate {
+    nonisolated func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
+        Task { @MainActor in
+            guard peripheral.state == .poweredOn,
+                  let familyServiceUUID,
+                  let memberID else { return }
+
+            isBluetoothAvailable = true
+
+            // Advertise our presence
+            peripheral.startAdvertising([
+                CBAdvertisementDataServiceUUIDsKey: [familyServiceUUID],
+                CBAdvertisementDataLocalNameKey: memberID
+            ])
+        }
+    }
+}
+
+// MARK: - CBCentralManagerDelegate
+
+extension LocationService: CBCentralManagerDelegate {
+    nonisolated func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        Task { @MainActor in
+            guard central.state == .poweredOn, let familyServiceUUID else { return }
+
+            // Scan for family members
+            central.scanForPeripherals(withServices: [familyServiceUUID], options: [
+                CBCentralManagerScanOptionAllowDuplicatesKey: false
+            ])
+        }
+    }
+
+    nonisolated func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String: Any], rssi RSSI: NSNumber) {
+        Task { @MainActor in
+            guard let discoveredMemberID = advertisementData[CBAdvertisementDataLocalNameKey] as? String,
+                  let memberID,
+                  discoveredMemberID != memberID,
+                  let modelContext else { return }
+
+            if !nearbyMembers.contains(discoveredMemberID) {
+                nearbyMembers.append(discoveredMemberID)
+
+                // Create proximity event
+                let event = ProximityEvent(
+                    memberID: memberID,
+                    nearbyMemberID: discoveredMemberID,
+                    nearbyMemberName: discoveredMemberID, // Will be resolved later
+                    detectionType: "bluetooth"
+                )
+                modelContext.insert(event)
+                try? modelContext.save()
+            }
+        }
+    }
+}

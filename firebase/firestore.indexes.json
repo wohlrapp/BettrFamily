@@ -1,0 +1,21 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "usageRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "memberID", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "domainRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "memberID", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

@@ -1,0 +1,112 @@
+name: BettrFamily
+options:
+  bundleIdPrefix: com.bettrfamily
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "15.0"
+  groupSortPosition: top
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: "87N5NSN3D8"
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.9"
+
+packages:
+  Firebase:
+    url: https://github.com/firebase/firebase-ios-sdk
+    from: "11.0.0"
+
+targets:
+
+  # ─── Main App ───────────────────────────────────────────
+  BettrFamily:
+    type: application
+    platform: iOS
+    sources:
+      - path: BettrFamily
+      - path: Shared
+    entitlements:
+      path: BettrFamily/BettrFamily.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+        com.apple.security.application-groups:
+          - group.com.bettrfamily.shared
+    settings:
+      base:
+        INFOPLIST_FILE: BettrFamily/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.bettrfamily.app
+        TARGETED_DEVICE_FAMILY: "1"
+    dependencies:
+      - target: DeviceActivityMonitorExtension
+      - target: DeviceActivityReportExtension
+      - target: PacketTunnelExtension
+      - package: Firebase
+        product: FirebaseAuth
+      - package: Firebase
+        product: FirebaseFirestore
+      - sdk: HealthKit.framework
+      - sdk: CoreLocation.framework
+      - sdk: CoreBluetooth.framework
+
+  # ─── DeviceActivity Monitor Extension ───────────────────
+  DeviceActivityMonitorExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: DeviceActivityMonitorExtension
+      - path: Shared
+    entitlements:
+      path: DeviceActivityMonitorExtension/DeviceActivityMonitorExtension.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - group.com.bettrfamily.shared
+    settings:
+      base:
+        INFOPLIST_FILE: DeviceActivityMonitorExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.bettrfamily.app.DeviceActivityMonitor
+        TARGETED_DEVICE_FAMILY: "1"
+
+  # ─── DeviceActivity Report Extension ────────────────────
+  DeviceActivityReportExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: DeviceActivityReportExtension
+      - path: Shared
+    entitlements:
+      path: DeviceActivityReportExtension/DeviceActivityReportExtension.entitlements
+      properties:
+        com.apple.developer.family-controls: true
+        com.apple.security.application-groups:
+          - group.com.bettrfamily.shared
+    settings:
+      base:
+        INFOPLIST_FILE: DeviceActivityReportExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.bettrfamily.app.DeviceActivityReport
+        TARGETED_DEVICE_FAMILY: "1"
+
+  # ─── Packet Tunnel Extension ────────────────────────────
+  PacketTunnelExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: PacketTunnelExtension
+      - path: Shared
+    entitlements:
+      path: PacketTunnelExtension/PacketTunnelExtension.entitlements
+      properties:
+        com.apple.developer.networking.networkextension:
+          - packet-tunnel-provider
+        com.apple.security.application-groups:
+          - group.com.bettrfamily.shared
+    settings:
+      base:
+        INFOPLIST_FILE: PacketTunnelExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.bettrfamily.app.PacketTunnel
+        TARGETED_DEVICE_FAMILY: "1"
