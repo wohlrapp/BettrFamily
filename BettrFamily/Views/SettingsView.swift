@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var showAppPicker = false
     @State private var showSignOutConfirm = false
     @State private var showActivityConfig = false
+    @State private var showInviteSheet = false
     @State private var mockDataInserted = false
 
     var body: some View {
@@ -36,9 +37,9 @@ struct SettingsView: View {
                             .font(.caption)
                         }
                     }
-                    Text("Teile den Family-Code mit anderen Familienmitgliedern, damit sie der Gruppe beitreten koennen.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Button("Familienmitglied einladen") {
+                        showInviteSheet = true
+                    }
                 }
 
                 // Monitoring
@@ -141,6 +142,12 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showActivityConfig) {
                 ActivityConfigView()
+            }
+            .sheet(isPresented: $showInviteSheet) {
+                if let code = authService.familyGroupID, let name = authService.memberName {
+                    let message = "\(name) laedt dich zu BettrFamily ein! Nutze diesen Family-Code beim Registrieren:\n\n\(code)"
+                    ShareSheet(activityItems: [message])
+                }
             }
             .confirmationDialog("Abmelden?", isPresented: $showSignOutConfirm) {
                 Button("Abmelden", role: .destructive) {
@@ -369,4 +376,16 @@ struct SettingsView: View {
         try? modelContext.save()
     }
     #endif
+}
+
+// MARK: - Share Sheet
+
+struct ShareSheet: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
