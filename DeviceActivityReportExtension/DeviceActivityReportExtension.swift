@@ -7,6 +7,17 @@ struct DeviceActivityReportExtension: DeviceActivityReportScene {
 
     let content: ([AppUsageInfo]) -> TotalActivityView
 
+    /// Social media bundle IDs — matches ActivityConfig defaults
+    private static let socialMediaBundleIDs: Set<String> = [
+        "com.burbn.instagram",
+        "com.zhiliaoapp.musically",
+        "com.toyopagroup.picaboo",
+        "com.google.ios.youtube",
+        "com.facebook.Facebook",
+        "com.atebits.Tweetie2",
+        "com.reddit.Reddit"
+    ]
+
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> [AppUsageInfo] {
         var usages: [AppUsageInfo] = []
 
@@ -34,7 +45,7 @@ struct DeviceActivityReportExtension: DeviceActivityReportScene {
 
     private func saveToSharedContainer(usages: [AppUsageInfo]) async {
         guard let container = try? ModelContainer(
-            for: UsageRecord.self,
+            for: UsageRecord.self, ComplianceEvent.self,
             configurations: ModelConfiguration(
                 groupContainer: .identifier(AppConstants.appGroupID)
             )
@@ -42,6 +53,7 @@ struct DeviceActivityReportExtension: DeviceActivityReportScene {
 
         let context = ModelContext(container)
         let memberID = UserDefaults.shared.string(forKey: AppConstants.UserDefaultsKeys.memberID) ?? "unknown"
+        let memberName = UserDefaults.shared.string(forKey: AppConstants.UserDefaultsKeys.memberName) ?? "Unknown"
 
         for usage in usages {
             let record = UsageRecord(
@@ -53,6 +65,17 @@ struct DeviceActivityReportExtension: DeviceActivityReportScene {
                 durationSeconds: usage.durationSeconds
             )
             context.insert(record)
+
+            // Flag social media usage as compliance event
+            if Self.socialMediaBundleIDs.contains(usage.bundleID) {
+                let event = ComplianceEvent(
+                    memberID: memberID,
+                    memberName: memberName,
+                    eventType: .socialMediaUsed,
+                    details: "Social Media genutzt: \(usage.displayName) (\(usage.formattedDuration))"
+                )
+                context.insert(event)
+            }
         }
 
         try? context.save()

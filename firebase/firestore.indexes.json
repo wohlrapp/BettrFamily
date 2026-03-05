@@ -15,6 +15,52 @@
         { "fieldPath": "timestamp", "order": "DESCENDING" },
         { "fieldPath": "memberID", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "dailyScores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "memberID", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "dailyScores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "finalScore", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "activityRecords",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "date", "order": "ASCENDING" },
+        { "fieldPath": "memberID", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "raveEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "locationSnapshots",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" },
+        { "fieldPath": "memberID", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "complianceEvents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "timestamp", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
