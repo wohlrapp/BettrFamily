@@ -56,6 +56,9 @@ struct ScoreTabView: View {
                         recentRavesSection
                     }
 
+                    // Weekly Chart
+                    WeeklyChartView()
+
                     // Family Leaderboard
                     if todayScores.count > 1 {
                         leaderboardSection

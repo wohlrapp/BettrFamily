@@ -7,7 +7,10 @@ struct MainTabView: View {
     @EnvironmentObject var healthKitService: HealthKitService
     @EnvironmentObject var locationService: LocationService
     @EnvironmentObject var activityConfigService: ActivityConfigService
+    @EnvironmentObject var syncService: FirebaseSyncService
+    @EnvironmentObject var pointsEngine: PointsEngine
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         TabView {
@@ -61,5 +64,27 @@ struct MainTabView: View {
                 locationService.startBluetoothProximity()
             }
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                // Sync and refresh when app comes to foreground
+                Task {
+                    await syncAll()
+                }
+            }
+        }
+    }
+
+    private func syncAll() async {
+        guard let familyGroupID = authService.familyGroupID else { return }
+
+        // Sync all local data to Firebase
+        await syncService.syncUsageRecords(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncDomainRecords(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncComplianceEvents(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncActivityRecords(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncDailyScores(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncStreakRecords(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncRaveEvents(from: modelContext, familyGroupID: familyGroupID)
+        await syncService.syncLocationSnapshots(from: modelContext, familyGroupID: familyGroupID)
     }
 }
