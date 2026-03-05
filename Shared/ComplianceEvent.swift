@@ -9,6 +9,10 @@ enum ComplianceEventType: String, Codable {
     case monitoredDomainAccessed = "monitored_domain_accessed"
     case screenTimeAuthRevoked = "screentime_auth_revoked"
     case socialMediaUsed = "social_media_used"
+    case tiktokUsed = "tiktok_used"
+    case instagramUsed = "instagram_used"
+    case youtubeUsed = "youtube_used"
+    case snapchatExcessive = "snapchat_excessive"
 }
 
 @Model

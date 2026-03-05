@@ -207,6 +207,10 @@ final class FamilyMonitorService: ObservableObject {
         case .monitoredDomainAccessed: return "Ueberwachte Domain aufgerufen"
         case .screenTimeAuthRevoked: return "Screen Time entzogen"
         case .socialMediaUsed: return "Social Media genutzt"
+        case .tiktokUsed: return "TikTok genutzt"
+        case .instagramUsed: return "Instagram genutzt"
+        case .youtubeUsed: return "YouTube genutzt"
+        case .snapchatExcessive: return "Snapchat ueber 30 Min"
         case nil: return "Compliance-Ereignis"
         }
     }

@@ -94,7 +94,7 @@ struct SetupView: View {
             Text("Apps auswaehlen")
                 .font(.title2.bold())
 
-            Text("Waehle die Apps aus, deren Nutzung erfasst werden soll. Alle Familienmitglieder koennen diese Auswahl aendern.")
+            Text("Bitte waehle ALLE Apps aus, damit die Nutzung vollstaendig erfasst wird. Tippe auf 'Alle Apps' oben in der Liste.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal)

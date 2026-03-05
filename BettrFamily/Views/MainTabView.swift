@@ -285,6 +285,14 @@ struct MainTabView: View {
                 modelContext: modelContext
             )
 
+            // Check Screen Time compliance (TikTok, Instagram, YouTube, Snapchat)
+            pointsEngine.checkScreenTimeCompliance(
+                memberID: memberID,
+                memberName: memberName,
+                date: date,
+                modelContext: modelContext
+            )
+
             // Calculate daily score (includes RAVE points)
             pointsEngine.calculateDailyScore(
                 for: date,

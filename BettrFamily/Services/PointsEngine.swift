@@ -375,6 +375,113 @@ final class PointsEngine: ObservableObject {
         modelContext.insert(event)
     }
 
+    // MARK: - Screen Time Compliance
+
+    /// Non-compliance rules based on Screen Time usage:
+    /// - TikTok, Instagram, YouTube: any usage (generates >1MB network traffic)
+    /// - Snapchat: more than 30 minutes usage
+    func checkScreenTimeCompliance(
+        memberID: String,
+        memberName: String,
+        date: Date,
+        modelContext: ModelContext
+    ) {
+        let startOfDay = Calendar.current.startOfDay(for: date)
+
+        let descriptor = FetchDescriptor<UsageRecord>(
+            predicate: #Predicate { $0.memberID == memberID && $0.date == startOfDay }
+        )
+        guard let usageRecords = try? modelContext.fetch(descriptor), !usageRecords.isEmpty else { return }
+
+        // TikTok — any usage
+        let tiktokSeconds = usageRecords
+            .filter { $0.appBundleID == "com.zhiliaoapp.musically" }
+            .reduce(0) { $0 + $1.durationSeconds }
+        if tiktokSeconds > 0 {
+            insertComplianceEventIfNeeded(
+                memberID: memberID, memberName: memberName, date: startOfDay,
+                eventType: .tiktokUsed,
+                details: "TikTok genutzt: \(formatDuration(tiktokSeconds))",
+                modelContext: modelContext
+            )
+        }
+
+        // Instagram — any usage
+        let instagramSeconds = usageRecords
+            .filter { $0.appBundleID == "com.burbn.instagram" }
+            .reduce(0) { $0 + $1.durationSeconds }
+        if instagramSeconds > 0 {
+            insertComplianceEventIfNeeded(
+                memberID: memberID, memberName: memberName, date: startOfDay,
+                eventType: .instagramUsed,
+                details: "Instagram genutzt: \(formatDuration(instagramSeconds))",
+                modelContext: modelContext
+            )
+        }
+
+        // YouTube — any usage
+        let youtubeSeconds = usageRecords
+            .filter { $0.appBundleID == "com.google.ios.youtube" }
+            .reduce(0) { $0 + $1.durationSeconds }
+        if youtubeSeconds > 0 {
+            insertComplianceEventIfNeeded(
+                memberID: memberID, memberName: memberName, date: startOfDay,
+                eventType: .youtubeUsed,
+                details: "YouTube genutzt: \(formatDuration(youtubeSeconds))",
+                modelContext: modelContext
+            )
+        }
+
+        // Snapchat — >30 min
+        let snapchatSeconds = usageRecords
+            .filter { $0.appBundleID == "com.toyopagroup.picaboo" }
+            .reduce(0) { $0 + $1.durationSeconds }
+        if snapchatSeconds > 1800 {
+            insertComplianceEventIfNeeded(
+                memberID: memberID, memberName: memberName, date: startOfDay,
+                eventType: .snapchatExcessive,
+                details: "Snapchat ueber 30 Min: \(formatDuration(snapchatSeconds))",
+                modelContext: modelContext
+            )
+        }
+
+        try? modelContext.save()
+    }
+
+    private func insertComplianceEventIfNeeded(
+        memberID: String,
+        memberName: String,
+        date: Date,
+        eventType: ComplianceEventType,
+        details: String,
+        modelContext: ModelContext
+    ) {
+        let eventTypeRaw = eventType.rawValue
+        let descriptor = FetchDescriptor<ComplianceEvent>(
+            predicate: #Predicate {
+                $0.memberID == memberID && $0.eventType == eventTypeRaw && $0.timestamp >= date
+            }
+        )
+        if let existing = try? modelContext.fetch(descriptor), !existing.isEmpty { return }
+
+        let event = ComplianceEvent(
+            memberID: memberID,
+            memberName: memberName,
+            eventType: eventType,
+            details: details
+        )
+        modelContext.insert(event)
+    }
+
+    private func formatDuration(_ seconds: Int) -> String {
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        }
+        return "\(minutes)m"
+    }
+
     // MARK: - Helpers
 
     private func getOrCreateStreak(memberID: String, modelContext: ModelContext) -> StreakRecord {

@@ -642,6 +642,14 @@ struct ScoreTabView: View {
                 modelContext: modelContext
             )
 
+            // Check Screen Time compliance (TikTok, Instagram, YouTube, Snapchat)
+            pointsEngine.checkScreenTimeCompliance(
+                memberID: memberID,
+                memberName: memberName,
+                date: date,
+                modelContext: modelContext
+            )
+
             pointsEngine.calculateDailyScore(
                 for: date,
                 memberID: memberID,

@@ -84,6 +84,10 @@ struct ComplianceEventRow: View {
         case .monitoredDomainAccessed: return "globe"
         case .screenTimeAuthRevoked: return "exclamationmark.triangle.fill"
         case .socialMediaUsed: return "app.badge"
+        case .tiktokUsed: return "play.rectangle.fill"
+        case .instagramUsed: return "camera.fill"
+        case .youtubeUsed: return "play.tv.fill"
+        case .snapchatExcessive: return "message.fill"
         case nil: return "questionmark.circle"
         }
     }
@@ -94,6 +98,7 @@ struct ComplianceEventRow: View {
         case .vpnEnabled: return .green
         case .monitoredAppUsed, .monitoredDomainAccessed: return .orange
         case .socialMediaUsed: return .purple
+        case .tiktokUsed, .instagramUsed, .youtubeUsed, .snapchatExcessive: return .red
         case nil: return .gray
         }
     }
