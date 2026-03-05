@@ -8,10 +8,17 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         try? SharedModelContainer.create()
     }
 
-    private let dnsServerAddress = "1.1.1.1" // Cloudflare DNS as upstream
-    private var pendingDomains: Set<String> = []
-    private let domainQueue = DispatchQueue(label: "com.bettrfamily.domainlog")
+    private let upstreamDNS = "1.1.1.1"
     private var udpSession: NWUDPSession?
+
+    /// Tracks pending DNS queries by transaction ID so responses can be
+    /// matched back to the original packet for correct IP/port rewriting.
+    private var pendingQueries: [UInt16: Data] = [:]
+    private let pendingLock = NSLock()
+
+    /// Domain deduplication
+    private var recentDomains: Set<String> = []
+    private let domainQueue = DispatchQueue(label: "com.bettrfamily.domainlog")
 
     // MARK: - Tunnel Lifecycle
 
@@ -23,9 +30,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 completionHandler(error)
                 return
             }
+            guard let self else {
+                completionHandler(nil)
+                return
+            }
+
             // Create UDP session to real DNS server for forwarding queries
-            self?.udpSession = self?.createUDPSession(to: NWHostEndpoint(hostname: "1.1.1.1", port: "53"), from: nil)
-            self?.startReadingPackets()
+            self.udpSession = self.createUDPSession(
+                to: NWHostEndpoint(hostname: self.upstreamDNS, port: "53"),
+                from: nil
+            )
+
+            // Set read handler ONCE — it will receive ALL responses
+            self.setupResponseHandler()
+            self.startReadingPackets()
             completionHandler(nil)
         }
     }
@@ -33,22 +51,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
         udpSession?.cancel()
         udpSession = nil
+        pendingLock.lock()
+        pendingQueries.removeAll()
+        pendingLock.unlock()
         completionHandler()
     }
 
     // MARK: - Network Settings
 
     private func createTunnelSettings() -> NEPacketTunnelNetworkSettings {
-        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: dnsServerAddress)
+        let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: upstreamDNS)
 
-        // DNS settings — intercept DNS queries
-        let dnsSettings = NEDNSSettings(servers: ["198.18.0.1"]) // fake local DNS
+        // DNS settings — intercept DNS queries by pointing at our tunnel address
+        let dnsSettings = NEDNSSettings(servers: ["198.18.0.1"])
         dnsSettings.matchDomains = [""] // match all domains
         settings.dnsSettings = dnsSettings
 
-        // IPv4 settings — route only DNS traffic through tunnel
+        // IPv4 settings — route ONLY DNS traffic through tunnel
         let ipv4 = NEIPv4Settings(addresses: ["198.18.0.1"], subnetMasks: ["255.255.255.0"])
-        // Only route DNS through tunnel, not all traffic
         ipv4.includedRoutes = [NEIPv4Route(destinationAddress: "198.18.0.1", subnetMask: "255.255.255.255")]
         settings.ipv4Settings = ipv4
 
@@ -60,63 +80,104 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func startReadingPackets() {
         packetFlow.readPackets { [weak self] packets, protocols in
             self?.handlePackets(packets, protocols: protocols)
-            self?.startReadingPackets() // continue reading
+            self?.startReadingPackets()
         }
     }
 
     private func handlePackets(_ packets: [Data], protocols: [NSNumber]) {
         for (index, packet) in packets.enumerated() {
-            if let domain = extractDNSQuery(from: packet) {
-                logDomain(domain, queryType: "DNS")
-                // Forward DNS query to real DNS server and relay response
-                forwardDNSQuery(originalPacket: packet, protocol: protocols[index])
-            } else {
-                if let domain = extractSNI(from: packet) {
-                    logDomain(domain, queryType: "SNI")
-                }
-                // Non-DNS packets: write back so the system handles them normally
-                packetFlow.writePackets([packet], withProtocols: [protocols[index]])
+            guard let dnsInfo = extractDNSQuery(from: packet) else {
+                // Only DNS packets should arrive (routing is limited to 198.18.0.1/32).
+                // Drop anything else — writing it back would create a loop.
+                continue
             }
+
+            logDomain(dnsInfo.domain, queryType: "DNS")
+            forwardDNSQuery(originalPacket: packet, transactionID: dnsInfo.transactionID, protocol: protocols[index])
         }
     }
 
     // MARK: - DNS Forwarding
 
-    private func forwardDNSQuery(originalPacket: Data, protocol proto: NSNumber) {
-        guard let udpSession else {
-            // No session — pass packet through as-is
-            packetFlow.writePackets([originalPacket], withProtocols: [proto])
-            return
-        }
+    private func forwardDNSQuery(originalPacket: Data, transactionID: UInt16, protocol proto: NSNumber) {
+        guard let udpSession else { return }
 
+        // Store the original packet keyed by DNS transaction ID
+        pendingLock.lock()
+        pendingQueries[transactionID] = originalPacket
+        pendingLock.unlock()
+
+        // Extract DNS payload (skip IP header + 8 byte UDP header)
         let ipHeaderLength = Int(originalPacket[0] & 0x0F) * 4
-        let udpStart = ipHeaderLength
-        let dnsPayload = originalPacket.subdata(in: (udpStart + 8)..<originalPacket.count)
+        let dnsPayload = originalPacket.subdata(in: (ipHeaderLength + 8)..<originalPacket.count)
 
         udpSession.writeDatagram(dnsPayload) { error in
             if let error {
                 NSLog("BettrFamily DNS forward error: \(error)")
-                return
+                // Remove pending query on write failure
+                self.pendingLock.lock()
+                self.pendingQueries.removeValue(forKey: transactionID)
+                self.pendingLock.unlock()
             }
         }
 
-        udpSession.setReadHandler({ [weak self] datagrams, error in
-            guard let self, let datagrams, let responseDNS = datagrams.first else { return }
-
-            // Build a UDP/IP response packet from the DNS response
-            if let responsePacket = self.buildDNSResponsePacket(
-                originalPacket: originalPacket,
-                dnsResponse: responseDNS
-            ) {
-                self.packetFlow.writePackets([responsePacket], withProtocols: [proto])
-            }
-        }, maxDatagrams: 1)
+        // Clean up stale queries after 10 seconds to prevent memory leaks
+        DispatchQueue.global().asyncAfter(deadline: .now() + 10) { [weak self] in
+            guard let self else { return }
+            self.pendingLock.lock()
+            self.pendingQueries.removeValue(forKey: transactionID)
+            self.pendingLock.unlock()
+        }
     }
+
+    /// Set up a single read handler that continuously receives DNS responses
+    /// and matches them back to the original query packets.
+    private func setupResponseHandler() {
+        guard let udpSession else { return }
+
+        udpSession.setReadHandler({ [weak self] datagrams, error in
+            guard let self, let datagrams else {
+                if let error {
+                    NSLog("BettrFamily DNS read error: \(error)")
+                }
+                return
+            }
+
+            for dnsResponse in datagrams {
+                guard dnsResponse.count >= 2 else { continue }
+
+                // Extract transaction ID from DNS response (first 2 bytes)
+                let txID = UInt16(dnsResponse[0]) << 8 | UInt16(dnsResponse[1])
+
+                // Find the matching original packet
+                self.pendingLock.lock()
+                let originalPacket = self.pendingQueries.removeValue(forKey: txID)
+                self.pendingLock.unlock()
+
+                guard let originalPacket else {
+                    NSLog("BettrFamily DNS response for unknown txID: \(txID)")
+                    continue
+                }
+
+                // Build the IP/UDP response and send it back through the tunnel
+                if let responsePacket = self.buildDNSResponsePacket(
+                    originalPacket: originalPacket,
+                    dnsResponse: dnsResponse
+                ) {
+                    // Use AF_INET (2) as protocol number for IPv4
+                    self.packetFlow.writePackets([responsePacket], withProtocols: [AF_INET as NSNumber])
+                }
+            }
+        }, maxDatagrams: NSIntegerMax) // Read as many datagrams as available
+    }
+
+    // MARK: - DNS Response Packet Building
 
     private func buildDNSResponsePacket(originalPacket: Data, dnsResponse: Data) -> Data? {
         let ipHeaderLength = Int(originalPacket[0] & 0x0F) * 4
+        guard originalPacket.count >= ipHeaderLength + 8 else { return nil }
 
-        // Extract original IP src/dst and UDP src port to build the reply
+        // Extract original addresses and ports
         let origSrcIP = originalPacket.subdata(in: 12..<16)
         let origDstIP = originalPacket.subdata(in: 16..<20)
         let udpStart = ipHeaderLength
@@ -133,7 +194,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // Swap src and dst IP
         ipHeader.replaceSubrange(12..<16, with: origDstIP)
         ipHeader.replaceSubrange(16..<20, with: origSrcIP)
-        // Zero out checksum, then recalculate
+        // Zero TTL-related fields that might cause issues — keep protocol as UDP
+        // Recalculate checksum
         ipHeader[10] = 0
         ipHeader[11] = 0
         let checksum = ipChecksum(ipHeader)
@@ -146,7 +208,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         udpHeader.replaceSubrange(2..<4, with: origSrcPort) // dst port = original src
         udpHeader[4] = UInt8(udpLength >> 8)
         udpHeader[5] = UInt8(udpLength & 0xFF)
-        udpHeader[6] = 0 // checksum (optional for IPv4 UDP)
+        udpHeader[6] = 0 // checksum optional for IPv4 UDP
         udpHeader[7] = 0
 
         return ipHeader + udpHeader + dnsResponse
@@ -171,8 +233,13 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
     // MARK: - DNS Parsing
 
-    private func extractDNSQuery(from packet: Data) -> String? {
-        // Minimum IP header + UDP header + DNS header = 20 + 8 + 12 = 40 bytes
+    private struct DNSQueryInfo {
+        let domain: String
+        let transactionID: UInt16
+    }
+
+    private func extractDNSQuery(from packet: Data) -> DNSQueryInfo? {
+        // Minimum: IP header (20) + UDP header (8) + DNS header (12) = 40 bytes
         guard packet.count > 40 else { return nil }
 
         // Check IP protocol (byte 9) is UDP (17)
@@ -182,21 +249,25 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
         // Check UDP destination port is 53 (DNS)
         let udpStart = ipHeaderLength
-        guard packet.count > udpStart + 4 else { return nil }
+        guard packet.count > udpStart + 8 else { return nil }
 
         let destPort = UInt16(packet[udpStart + 2]) << 8 | UInt16(packet[udpStart + 3])
         guard destPort == 53 else { return nil }
 
-        // Parse DNS query
-        let dnsStart = udpStart + 8 // UDP header is 8 bytes
+        // Extract DNS transaction ID (first 2 bytes of DNS payload)
+        let dnsStart = udpStart + 8
         guard packet.count > dnsStart + 12 else { return nil }
+
+        let transactionID = UInt16(packet[dnsStart]) << 8 | UInt16(packet[dnsStart + 1])
 
         // Question count (bytes 4-5 of DNS header)
         let questionCount = UInt16(packet[dnsStart + 4]) << 8 | UInt16(packet[dnsStart + 5])
         guard questionCount > 0 else { return nil }
 
         // Parse domain name starting at DNS header + 12
-        return parseDNSName(from: packet, offset: dnsStart + 12)
+        guard let domain = parseDNSName(from: packet, offset: dnsStart + 12) else { return nil }
+
+        return DNSQueryInfo(domain: domain, transactionID: transactionID)
     }
 
     private func parseDNSName(from data: Data, offset: Int) -> String? {
@@ -206,9 +277,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         while position < data.count {
             let length = Int(data[position])
             if length == 0 { break }
-
-            // Check for DNS compression pointer
-            if length & 0xC0 == 0xC0 { break }
+            if length & 0xC0 == 0xC0 { break } // compression pointer
 
             position += 1
             guard position + length <= data.count else { return nil }
@@ -223,109 +292,27 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return domain.isEmpty ? nil : domain
     }
 
-    // MARK: - TLS SNI Extraction
-
-    private func extractSNI(from packet: Data) -> String? {
-        // Check for TCP (protocol 6)
-        guard packet.count > 40, packet[9] == 6 else { return nil }
-
-        let ipHeaderLength = Int(packet[0] & 0x0F) * 4
-        let tcpStart = ipHeaderLength
-        guard packet.count > tcpStart + 20 else { return nil }
-
-        // Check destination port is 443 (HTTPS)
-        let destPort = UInt16(packet[tcpStart]) << 8 | UInt16(packet[tcpStart + 1])
-        guard destPort == 443 else { return nil }
-
-        let tcpHeaderLength = Int((packet[tcpStart + 12] >> 4)) * 4
-        let tlsStart = tcpStart + tcpHeaderLength
-
-        guard packet.count > tlsStart + 5 else { return nil }
-
-        // Check TLS handshake (0x16) and ClientHello (0x01)
-        guard packet[tlsStart] == 0x16 else { return nil }
-
-        let handshakeStart = tlsStart + 5
-        guard packet.count > handshakeStart + 1, packet[handshakeStart] == 0x01 else { return nil }
-
-        // Parse ClientHello for SNI extension
-        return parseSNIFromClientHello(data: packet, offset: handshakeStart)
-    }
-
-    private func parseSNIFromClientHello(data: Data, offset: Int) -> String? {
-        var pos = offset + 4 // skip handshake type + length
-
-        guard data.count > pos + 34 else { return nil }
-
-        // Skip client version (2) + random (32)
-        pos += 34
-
-        // Skip session ID
-        guard data.count > pos + 1 else { return nil }
-        let sessionIDLength = Int(data[pos])
-        pos += 1 + sessionIDLength
-
-        // Skip cipher suites
-        guard data.count > pos + 2 else { return nil }
-        let cipherSuitesLength = Int(data[pos]) << 8 | Int(data[pos + 1])
-        pos += 2 + cipherSuitesLength
-
-        // Skip compression methods
-        guard data.count > pos + 1 else { return nil }
-        let compressionLength = Int(data[pos])
-        pos += 1 + compressionLength
-
-        // Extensions
-        guard data.count > pos + 2 else { return nil }
-        let extensionsLength = Int(data[pos]) << 8 | Int(data[pos + 1])
-        pos += 2
-
-        let extensionsEnd = min(pos + extensionsLength, data.count)
-
-        while pos + 4 < extensionsEnd {
-            let extType = UInt16(data[pos]) << 8 | UInt16(data[pos + 1])
-            let extLength = Int(data[pos + 2]) << 8 | Int(data[pos + 3])
-            pos += 4
-
-            if extType == 0x0000 { // SNI extension
-                guard pos + 5 < data.count else { return nil }
-
-                let nameListLength = Int(data[pos]) << 8 | Int(data[pos + 1])
-                _ = nameListLength
-                let nameType = data[pos + 2]
-                let nameLength = Int(data[pos + 3]) << 8 | Int(data[pos + 4])
-
-                guard nameType == 0, pos + 5 + nameLength <= data.count else { return nil }
-
-                let nameData = data[(pos + 5)..<(pos + 5 + nameLength)]
-                return String(data: nameData, encoding: .utf8)
-            }
-
-            pos += extLength
-        }
-
-        return nil
-    }
-
     // MARK: - Domain Logging
 
     private func logDomain(_ domain: String, queryType: String) {
         // Skip internal/system domains
-        let skipPrefixes = ["apple.com", "icloud.com", "mzstatic.com", "cdn-apple.com"]
-        if skipPrefixes.contains(where: { domain.hasSuffix($0) }) { return }
+        let skipSuffixes = [
+            "apple.com", "icloud.com", "mzstatic.com", "cdn-apple.com",
+            "apple-dns.net", "push.apple.com", "aaplimg.com"
+        ]
+        if skipSuffixes.contains(where: { domain.hasSuffix($0) }) { return }
 
         domainQueue.async { [weak self] in
             guard let self else { return }
 
-            // Deduplicate within short window
+            // Deduplicate within 60-second window
             let key = "\(domain)_\(queryType)"
-            guard !self.pendingDomains.contains(key) else { return }
-            self.pendingDomains.insert(key)
+            guard !self.recentDomains.contains(key) else { return }
+            self.recentDomains.insert(key)
 
-            // Clear dedup after 60 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 60) {
-                self.domainQueue.async {
-                    self.pendingDomains.remove(key)
+            DispatchQueue.global().asyncAfter(deadline: .now() + 60) { [weak self] in
+                self?.domainQueue.async {
+                    self?.recentDomains.remove(key)
                 }
             }
 
