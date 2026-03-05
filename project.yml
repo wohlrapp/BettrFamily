@@ -32,6 +32,7 @@ targets:
         com.apple.developer.family-controls: true
         com.apple.developer.networking.networkextension:
           - packet-tunnel-provider
+        aps-environment: development
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
         com.apple.security.application-groups:
@@ -49,6 +50,8 @@ targets:
         product: FirebaseAuth
       - package: Firebase
         product: FirebaseFirestore
+      - package: Firebase
+        product: FirebaseMessaging
       - sdk: HealthKit.framework
       - sdk: CoreLocation.framework
       - sdk: CoreBluetooth.framework

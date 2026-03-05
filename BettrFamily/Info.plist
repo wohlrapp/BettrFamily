@@ -49,6 +49,7 @@
 		<string>fetch</string>
 		<string>bluetooth-central</string>
 		<string>bluetooth-peripheral</string>
+		<string>remote-notification</string>
 	</array>
 </dict>
 </plist>

@@ -1,6 +1,8 @@
 import SwiftUI
 import SwiftData
 import FirebaseCore
+import FirebaseFirestore
+import FirebaseMessaging
 
 @main
 struct BettrFamilyApp: App {
@@ -78,16 +80,25 @@ struct RootView: View {
 
 // MARK: - App Delegate
 
-class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate, MessagingDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         FirebaseApp.configure()
 
-        // Local notifications
+        // Push notifications
         UNUserNotificationCenter.current().delegate = self
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
+            if granted {
+                DispatchQueue.main.async {
+                    application.registerForRemoteNotifications()
+                }
+            }
+        }
+
+        // FCM
+        Messaging.messaging().delegate = self
 
         // Background task
         HeartbeatService.shared.registerBackgroundTask()
@@ -97,6 +108,33 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
         return true
     }
+
+    // MARK: - Remote Notifications
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        Messaging.messaging().apnsToken = deviceToken
+    }
+
+    // MARK: - FCM Delegate
+
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken else { return }
+        // Store FCM token in Firestore for this member
+        guard let memberID = UserDefaults.shared.string(forKey: AppConstants.UserDefaultsKeys.memberID) else { return }
+
+        Task {
+            do {
+                try await Firestore.firestore()
+                    .collection(AppConstants.FirestoreCollections.members)
+                    .document(memberID)
+                    .updateData(["fcmToken": fcmToken])
+            } catch {
+                print("Failed to update FCM token: \(error)")
+            }
+        }
+    }
+
+    // MARK: - Notification Presentation
 
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
